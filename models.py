@@ -5,7 +5,7 @@ import uuid
 
 
 
-class UUIDMixin(BaseModel):
+class ChatIDMixin(BaseModel):
     chat_id: str = Field(min_length=36, max_length=36)
     
     @validator('chat_id')
@@ -16,7 +16,7 @@ class UUIDMixin(BaseModel):
 
 
 
-class CHChatModel(UUIDMixin):
+class CHChatModel(ChatIDMixin):
     title: str = Field(min_length=1)
     updated_at: float
     model_type: Literal['default', 'expert', 'vision']
@@ -39,7 +39,7 @@ class ChatResponseMessageModel(BaseModel):
     content: str = Field(min_length=0)
     files: list[ChatFileModel]
 
-class ChatModel(UUIDMixin):
+class ChatModel(ChatIDMixin):
     title: str | None = Field(min_length=1)
     inserted_at: float
     updated_at: float
@@ -49,7 +49,7 @@ class ChatModel(UUIDMixin):
 
 
 
-class RequestMessageModel(UUIDMixin):
+class RequestMessageModel(ChatIDMixin):
     parent_message_id: int | None = Field(ge=1, default=None)
     prompt: str = Field(min_length=1)
     file_ids: list[str] = Field(min_length=41, max_length=41)

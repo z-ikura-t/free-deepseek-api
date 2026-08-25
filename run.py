@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, File, UploadFile, status
+from fastapi.responses import StreamingResponse
 
-import uuid
+import json, uuid
 from loguru import logger
 
 from src.data import Data
@@ -140,10 +141,13 @@ async def get_chat(chat_id: str) -> models.ChatModel:
 
 
 
-@client.post('/api/chat/generate', tags=['Messages'], status_code=status.HTTP_201_CREATED)
-async def generate(request: models.RequestMessageModel) -> models.SplitMessageModel:
+@client.post('/api/chat/generate', tags=['Messages'], status_code=status.HTTP_201_CREATED, response_model=None)
+async def generate(request: models.RequestMessageModel, stream: bool = False) -> models.SplitMessageModel | StreamingResponse:
     '''
     Create a new user message in the chat and generate an assistant response.
+    
+    Query params:
+    - stream (bool): enable Server-Sent Events (SSE) streaming. If True, response is sent as a stream of events. Default is False.
     
     Args:
     - chat_id (str): ID of the chat
@@ -181,29 +185,53 @@ async def generate(request: models.RequestMessageModel) -> models.SplitMessageMo
     if config.base_prompt_enabled: request.prompt = f'{config.base_prompt}\n{request.prompt}'
     
     message = Message(data)
-    await message.fetch(config, request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
-    
-    if not message.exception_detail is None: raise HTTPException(status_code=500, detail=message.exception_detail)
-    
-    user_message = models.UserMessageModel(
-        message_id=message.parent_message_id,
-        parent_message_id=request.parent_message_id,
-        role='USER',
-        content=request.prompt, 
-        files=message.files
-    )
-    assistant_message = models.AssistantMessageModel(
-        message_id=message.message_id,
-        parent_message_id=message.parent_message_id,
-        role='ASSISTANT',
-        think=message.think,
-        content=message.reply
-    )
-    
-    return models.SplitMessageModel(
-        user_message=user_message, 
-        assistant_message=assistant_message
-    )
+    if not stream:
+        await message.fetch(config, request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
+        
+        if not message.exception_detail is None: raise HTTPException(status_code=500, detail=message.exception_detail)
+        
+        user_message = models.UserMessageModel(
+            message_id=message.parent_message_id,
+            parent_message_id=request.parent_message_id,
+            role='USER',
+            content=request.prompt, 
+            files=message.files
+        )
+        assistant_message = models.AssistantMessageModel(
+            message_id=message.message_id,
+            parent_message_id=message.parent_message_id,
+            role='ASSISTANT',
+            think=message.think,
+            content=message.content
+        )
+        
+        return models.SplitMessageModel(
+            user_message=user_message, 
+            assistant_message=assistant_message
+        )
+    else:
+        async def fetch_stream():
+            async for line in message.fetch_stream(config, request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids):
+                yield line
+            
+            if message.exception_detail is None:
+                yield 'event: messages_data\n'
+                yield f'data: {json.dumps({
+                    "message_id": message.parent_message_id,
+                    "parent_message_id": request.parent_message_id,
+                    "role": "USER"
+                })}\n\n'
+                yield f'data: {json.dumps({
+                    "message_id": message.message_id,
+                    "parent_message_id": message.parent_message_id,
+                    "role": "ASSISTANT"
+                })}\n\n'
+            yield 'event: close\n\n'
+        
+        return StreamingResponse(
+            fetch_stream(), 
+            media_type='text/event-stream'
+        )
 
 
 

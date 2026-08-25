@@ -135,7 +135,20 @@ curl -X POST http://127.0.0.1:4971/api/file/upload \
 
 ### Generate Message
 
-Streaming is currently not available — responses are returned as complete messages.
+Streaming mode:
+
+```bash
+curl -N -X POST http://127.0.0.1:4971/api/chat/generate?stream=true \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id": "{chat_id}",
+    "parent_message_id": null,
+    "prompt": "your message",
+    "file_ids": []
+  }'
+```
+
+Non-streaming mode (returns complete JSON):
 
 ```bash
 curl -X POST http://127.0.0.1:4971/api/chat/generate \
@@ -153,10 +166,10 @@ curl -X POST http://127.0.0.1:4971/api/chat/generate \
 - prompt — your message text
 - file_ids — list of file IDs from **Upload File**
 
-Example:
+Example (streaming):
 
 ```bash
-curl -X POST http://127.0.0.1:4971/api/chat/generate \
+curl -N -X POST http://127.0.0.1:4971/api/chat/generate?stream=true \
   -H 'Content-Type: application/json' \
   -d '{
   "chat_id": "221bca6b-8eaa-456c-8ef5-a54f3237c96f",
