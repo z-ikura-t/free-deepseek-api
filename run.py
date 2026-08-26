@@ -59,7 +59,27 @@ async def get_chats(start: int = 0, end: int = 100) -> models.ChatHistoryModel:
 
 
 
-@client.post('/api/chat/create', tags=['Chats'], status_code=status.HTTP_201_CREATED)
+@client.delete('/api/chats', tags=['Chats'], status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chats(request: models.DeleteChatsModel) -> None:
+    '''
+    Delete multiple chats by their IDs.
+    
+    Args:
+    - chat_ids (list[str]): list of chat IDs to delete
+    
+    Raises:
+    - 422: validation errors
+    - 500: unexpected errors
+    '''
+    
+    chat_history = ChatHistory(data)
+    await chat_history.delete_chats(request.chat_ids)
+    
+    if not chat_history.exception_detail is None: raise HTTPException(status_code=500, detail=chat_history.exception_detail)
+
+
+
+@client.post('/api/chat/create', tags=['Chat'], status_code=status.HTTP_201_CREATED)
 async def create_new_chat() -> models.ChatModel:
     '''
     Creates a chat and returns its parameters.
@@ -93,10 +113,10 @@ async def create_new_chat() -> models.ChatModel:
         messages=chat.messages
     )
 
-@client.get('/api/chat/{chat_id}', tags=['Chats'])
+@client.get('/api/chat/{chat_id}', tags=['Chat'])
 async def get_chat(chat_id: str) -> models.ChatModel:
     '''
-    Gets chat by id and returns its parameters.
+    Gets chat by ID and returns its parameters.
     
     Args:
     - chat_id (str): ID of the chat
@@ -137,6 +157,36 @@ async def get_chat(chat_id: str) -> models.ChatModel:
         current_message_id=chat.current_message_id,
         model_type=chat.model_type,
         messages=chat.messages
+    )
+
+
+
+@client.patch('/api/chat/{chat_id}/title', tags=['Chat'])
+async def update_chat_title(chat_id: str, request: models.RequestNewChatTitleModel) -> models.ResponseNewChatTitleModel:
+    '''
+    Update the title of a chat by its ID.
+    
+    Args:
+    - chat_id (str): ID of the chat to update
+    - title (str): new title of the chat
+    
+    Returns:
+    - chat_id (str): ID of the updated chat
+    - title (str): new title of the chat
+    
+    Raises:
+    - 422: validation errors
+    - 500: unexpected errors
+    '''
+    
+    chat = Chat(data)
+    await chat.update_title(chat_id, request.title)
+    
+    if not chat.exception_detail is None: raise HTTPException(status_code=500, detail=chat.exception_detail)
+    
+    return models.ResponseNewChatTitleModel(
+        chat_id=chat_id, 
+        title=chat.title
     )
 
 

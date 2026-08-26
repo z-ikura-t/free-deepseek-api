@@ -26,6 +26,17 @@ class ChatHistoryModel(BaseModel):
 
 
 
+class DeleteChatsModel(BaseModel):
+    chat_ids: list[str] = Field(min_length=36, max_length=36)
+    
+    @validator('chat_ids', each_item=True)
+    def validate_chat_id(cls, value: str) -> str:
+        try: uuid.UUID(value)
+        except ValueError: raise ValueError('Invalid chat ID format. Must be a valid UUID.')
+        return value
+
+
+
 class ChatFileModel(BaseModel):
     file_id: str = Field(min_length=41, max_length=41)
     name: str = Field(min_length=1)
@@ -47,6 +58,13 @@ class ChatModel(ChatIDMixin):
     current_message_id: int | None = Field(ge=0)
     messages: list[ChatResponseMessageModel]
 
+
+
+class RequestNewChatTitleModel(BaseModel):
+    title: str = Field(min_length=1)
+
+class ResponseNewChatTitleModel(ChatIDMixin):
+    title: str = Field(min_length=1)
 
 
 class RequestMessageModel(ChatIDMixin):

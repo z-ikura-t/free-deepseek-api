@@ -39,7 +39,7 @@ class Data:
             'Authorization': f'Bearer {config.token}', 
             'Content-Type': 'application/json', 
             'x-client-platform': 'web', 
-            'x-client-version': '2.3.0'
+            'x-client-version': '2.4.0'
         }
         
         self.impersonate = random.choice(['chrome', 'safari', 'firefox'])

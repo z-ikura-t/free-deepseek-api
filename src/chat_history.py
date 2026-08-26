@@ -111,3 +111,25 @@ class ChatHistory:
             self.exception_detail = str(e)
             if self._data.debug: logger.error(f'[Chat History] Unknown exception | Detail: {self.exception_detail}')
             print_exc()
+    
+    
+    async def delete_chats(self, chat_ids: list[str]) -> None:
+        try:
+            async with AsyncSession() as session:
+                response = await session.post(
+                    f'{self._data.scheme}{self._data.authority}/api/v0/chat_session/delete', 
+                    headers=self._data.headers, 
+                    impersonate=self._data.impersonate, 
+                    json={
+                        'chat_session_ids': chat_ids
+                    }
+                )
+            
+            response = await extract_from_response('Chats Delete', response, debug=self._data.debug)
+            if not response[0]:
+                self.exception_detail = response[1]
+                return None
+        except Exception as e:
+            self.exception_detail = str(e)
+            if self._data.debug: logger.error(f'[Chats Delete] Unknown exception | Detail: {self.exception_detail}')
+            print_exc()
