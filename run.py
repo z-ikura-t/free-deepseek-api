@@ -179,6 +179,9 @@ async def update_chat_title(chat_id: str, request: models.RequestNewChatTitleMod
     - 500: unexpected errors
     '''
     
+    try: uuid.UUID(chat_id)
+    except ValueError: raise HTTPException(status_code=422, detail='Invalid chat ID format. Must be a valid UUID.')
+    
     chat = Chat(data)
     await chat.update_title(chat_id, request.title)
     
@@ -228,9 +231,6 @@ async def generate(request: models.RequestMessageModel, stream: bool = False) ->
     - 422: validation errors
     - 500: unexpected errors
     '''
-    
-    try: uuid.UUID(request.chat_id)
-    except ValueError: raise HTTPException(status_code=422, detail='Invalid chat ID format. Must be a valid UUID.')
     
     if config.base_prompt_enabled: request.prompt = f'{config.base_prompt}\n{request.prompt}'
     

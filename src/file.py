@@ -56,7 +56,7 @@ class File:
             
             self.file_id = response['data']['biz_data']['id']
             
-            if self._data.debug: logger.info('[File] Uploading')
+            if self._data.debug: logger.info('[File] Uploading...')
             
             attempts = 5
             for i in range(attempts):
@@ -79,9 +79,9 @@ class File:
                 if status == 'SUCCESS': break
                 elif status == 'CONTENT_EMPTY':
                     if self._data.debug: logger.error('[File] Not uploaded | Status: CONTENT_EMPTY')
-                    self.exception_detail = 'File is empty'
-                elif status == 'FAILED':
-                    if self._data.debug: logger.error('[File] Not uploaded | Status: FAILED')
+                    self.exception_detail = 'No text could be extracted from the file'
+                    return None
+                elif status == 'FAILED': continue
                 
                 await asyncio.sleep(1)
             else:

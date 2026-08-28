@@ -67,6 +67,7 @@ class ResponseNewChatTitleModel(ChatIDMixin):
     title: str = Field(min_length=1)
 
 
+
 class RequestMessageModel(ChatIDMixin):
     parent_message_id: int | None = Field(ge=1, default=None)
     prompt: str = Field(min_length=1)

@@ -14,6 +14,7 @@ venv.bak/
 htmlcov/
 .mypy_cache/
 .tox/
+tests/
 
 # Environment
 .env
