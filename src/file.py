@@ -48,7 +48,7 @@ class File:
                     impersonate=self._data.impersonate
                 )
             
-            response = await extract_from_response('File', response, debug=self._data.debug)
+            response = extract_from_response('File', response, debug=self._data.debug)
             if not response[0]:
                 self.exception_detail = response[1]
                 return None
@@ -68,7 +68,7 @@ class File:
                         impersonate=self._data.impersonate
                     )
                 
-                response = await extract_from_response('File', response, debug=self._data.debug)
+                response = extract_from_response('File', response, debug=self._data.debug)
                 if not response[0]:
                     self.exception_detail = response[1]
                     return None

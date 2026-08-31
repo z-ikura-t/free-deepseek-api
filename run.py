@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 
 import json, uuid
 from loguru import logger
+from datetime import date, datetime
 
 from src.data import Data
 from src.chat import Chat
@@ -24,13 +25,26 @@ logger.add('logs/client.log', rotation='1 MB')
 
 
 @client.get('/api/chats', tags=['Chats'])
-async def get_chats(start: int = 0, end: int = 100) -> models.ChatHistoryModel:
+async def get_chats(start: int | None = None, end: int | None = None, start_date: date | None = None, end_date: date | None = None) -> models.ChatHistoryModel:
     '''
     Gets all chats and returns their parameters.
     
     Query params:
-    - start (int): The starting index of the chat list (inclusive).
-    - end (int): The ending index of the chat list (exclusive).
+    - start (int | None): The starting index of the chat list (inclusive). Default: 0.
+    - end (int | None): The ending index of the chat list (exclusive). Default: None
+    - start_date (str | None): Filter chats updated on or after this date. Format: YYYY-MM-DD.
+    - end_date (str | None): Filter chats updated before this date. Format: YYYY-MM-DD.
+    
+    Behavior:
+    - If any date param is provided (start_date or end_date), start and end are ignored:
+        - start_date only: returns chats from that date to now.
+        - end_date only: returns chats from the beginning up to that date.
+        - Both: returns chats within the date range.
+    
+    - If no date params are provided:
+        - start and end: returns range from start to end.
+        - start only: returns from start to the last chat.
+        - end only: returns from the first chat up to end.
     
     Returns:
     - chats (list[dict]): list of the chats
@@ -44,9 +58,22 @@ async def get_chats(start: int = 0, end: int = 100) -> models.ChatHistoryModel:
     - 500: unexpected errors
     '''
     
-    if start < 0: raise HTTPException(status_code=422, detail='"start" must be greater than or equal to 0')
-    elif end < 1: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to 1')
-    if end < start: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to "start"')
+    if start_date or end_date:
+        if start_date: start = datetime.combine(start_date, datetime.min.time()).timestamp()
+        else: start = None
+        if end_date: end = datetime.combine(end_date, datetime.min.time()).timestamp()
+        else: end = None
+        if start_date and end_date:
+            if end < start: raise HTTPException(status_code=422, detail='"end_date" must be greater than or equal to "start_date"')
+    else:
+        if not start is None and not end is None:
+            if end < start: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to "start"')
+        if not start is None:
+            if start < 0: raise HTTPException(status_code=422, detail='"start" must be greater than or equal to 0')
+        else: start = 0
+        if not end is None:
+            if end < 1: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to 1')
+        else: end = None
     
     chat_history = ChatHistory(data)
     await chat_history.fetch(start, end)

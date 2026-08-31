@@ -33,7 +33,7 @@ class Chat:
                         impersonate=self._data.impersonate
                     )
                 
-                response = await extract_from_response('Chat', response, debug=self._data.debug)
+                response = extract_from_response('Chat', response, debug=self._data.debug)
                 if not response[0]:
                     self.exception_detail = response[1]
                     return None
@@ -80,7 +80,7 @@ class Chat:
                         impersonate=self._data.impersonate
                     )
                     
-                    response = await extract_from_response('Chat', response, debug=self._data.debug)
+                    response = extract_from_response('Chat', response, debug=self._data.debug)
                     if not response[0]:
                         self.exception_detail = response[1]
                         return None
@@ -120,7 +120,7 @@ class Chat:
                     }
                 )
             
-            response = await extract_from_response('Chat Title', response, debug=self._data.debug)
+            response = extract_from_response('Chat Title', response, debug=self._data.debug)
             if not response[0]:
                 self.exception_detail = response[1]
                 return None

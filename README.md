@@ -79,7 +79,7 @@ DeepSeek supports three model variants. You can switch models using the `/api/mo
 
 Set model via API:
 ```bash
-curl -X PUT http://127.0.0.1:4971/api/model \
+curl -X PUT 'http://127.0.0.1:4971/api/model' \
   -H 'Content-Type: application/json' \
   -d '{
   "value": "model type"
@@ -92,40 +92,52 @@ curl -X PUT http://127.0.0.1:4971/api/model \
 ### Get Chats
 
 ```bash
-curl -X GET http://127.0.0.1:4971/api/chats
+curl -X GET 'http://127.0.0.1:4971/api/chats'
+```
+
+**Examples:**
+
+**Pagination:**
+```bash
+curl -X GET 'http://127.0.0.1:4971/api/chats?start=0&end=100'
+```
+
+**Date range:**
+```bash
+curl -X GET 'http://127.0.0.1:4971/api/chats?start_date=2026-08-15&end_date=2026-08-30'
 ```
 
 ### Create chat
 
 ```bash
-curl -X POST http://127.0.0.1:4971/api/chat/create
+curl -X POST 'http://127.0.0.1:4971/api/chat/create'
 ```
 
 ### Get chat
 
 ```bash
-curl -X GET http://127.0.0.1:4971/api/chat/{chat_id}
+curl -X GET 'http://127.0.0.1:4971/api/chat/{chat_id}'
 ```
 
 Replace `{chat_id}` with the actual chat ID.
 
-Example:
+**Example:**
 ```bash
-curl -X GET http://127.0.0.1:4971/api/chat/4a03e37a-bd78-4374-aa18-f1a4ba2cce43
+curl -X GET 'http://127.0.0.1:4971/api/chat/4a03e37a-bd78-4374-aa18-f1a4ba2cce43'
 ```
 
 ### Upload File
 
 ```bash
-curl -X POST http://127.0.0.1:4971/api/file/upload \
+curl -X POST 'http://127.0.0.1:4971/api/file/upload' \
   -F 'file=@/path/to/your/file.txt'
 ```
 
-Replace /path/to/your/file.txt with the actual path to your file.
+Replace `/path/to/your/file.txt` with the actual path to your file.
 
-Example:
+**Example:**
 ```bash
-curl -X POST http://127.0.0.1:4971/api/file/upload \
+curl -X POST 'http://127.0.0.1:4971/api/file/upload' \
   -F 'file=@image1.jpg'
 ```
 
@@ -135,10 +147,9 @@ curl -X POST http://127.0.0.1:4971/api/file/upload \
 
 ### Generate Message
 
-Streaming mode:
-
+**Streaming mode:**
 ```bash
-curl -N -X POST http://127.0.0.1:4971/api/chat/generate?stream=true \
+curl -N -X POST 'http://127.0.0.1:4971/api/chat/generate?stream=true' \
   -H 'Content-Type: application/json' \
   -d '{
     "chat_id": "{chat_id}",
@@ -148,10 +159,9 @@ curl -N -X POST http://127.0.0.1:4971/api/chat/generate?stream=true \
   }'
 ```
 
-Non-streaming mode (returns complete JSON):
-
+**Non-streaming mode (returns complete JSON):**
 ```bash
-curl -X POST http://127.0.0.1:4971/api/chat/generate \
+curl -X POST 'http://127.0.0.1:4971/api/chat/generate' \
   -H 'Content-Type: application/json' \
   -d '{
   "chat_id": "{chat_id}",
@@ -166,10 +176,9 @@ curl -X POST http://127.0.0.1:4971/api/chat/generate \
 - prompt — your message text
 - file_ids — list of file IDs from **Upload File**
 
-Example (streaming):
-
+**Example (streaming):**
 ```bash
-curl -N -X POST http://127.0.0.1:4971/api/chat/generate?stream=true \
+curl -N -X POST 'http://127.0.0.1:4971/api/chat/generate?stream=true' \
   -H 'Content-Type: application/json' \
   -d '{
   "chat_id": "221bca6b-8eaa-456c-8ef5-a54f3237c96f",
@@ -191,25 +200,25 @@ Manage features via API.
 - **Base Prompt** — sets a system prompt that is automatically prepended to every user message.
 - **Token** — view or update your DeepSeek authentication token.
 
-Enable/disable:
+**Enable/disable:**
 - Search
 - Thinking
 - Base Prompt
 
-Example:
+**Example:**
 ```bash
-curl -X PUT http://127.0.0.1:4971/api/feature/search/enabled \
+curl -X PUT 'http://127.0.0.1:4971/api/feature/search/enabled' \
   -H 'Content-Type: application/json' \
   -d '{"enabled": true}'
 ```
 
-Set value:
+**Set value:**
 - Base Prompt
 - Token
 
-Example:
+**Example:**
 ```bash
-curl -X PUT http://127.0.0.1:4971/api/feature/base_prompt \
+curl -X PUT 'http://127.0.0.1:4971/api/feature/base_prompt' \
   -H 'Content-Type: application/json' \
   -d '{"value": "Without Markdown: \n"}'
 ```

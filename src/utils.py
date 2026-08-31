@@ -6,7 +6,7 @@ from curl_cffi.requests import Response
 
 
 
-async def extract_from_response(tag: str, response: Response, debug: bool = False) -> tuple[bool, dict | str]:
+def extract_from_response(tag: str, response: Response, debug: bool = False) -> tuple[bool, dict | str]:
     try:
         if response.status_code == 200:
             try:

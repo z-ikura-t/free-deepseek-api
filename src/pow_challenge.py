@@ -96,7 +96,7 @@ class POWChallenge:
                     }
                 )
             
-            response = await extract_from_response('POW challenge', response, debug=self._data.debug)
+            response = extract_from_response('POW challenge', response, debug=self._data.debug)
             if not response[0]:
                 self.exception_detail = response[1]
                 return None
