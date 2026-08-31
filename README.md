@@ -97,13 +97,11 @@ curl -X GET 'http://127.0.0.1:4971/api/chats'
 
 **Examples:**
 
-**Pagination:**
 ```bash
+# Pagination
 curl -X GET 'http://127.0.0.1:4971/api/chats?start=0&end=100'
-```
 
-**Date range:**
-```bash
+# Date range
 curl -X GET 'http://127.0.0.1:4971/api/chats?start_date=2026-08-15&end_date=2026-08-30'
 ```
 
