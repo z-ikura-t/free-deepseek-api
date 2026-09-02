@@ -88,6 +88,11 @@ curl -X PUT 'http://127.0.0.1:4971/api/model' \
 
 ## API Endpoints
 
+### Health
+
+```bash
+curl -X GET 'http://127.0.0.1:4971/api/health'
+```
 
 ### Get Chats
 

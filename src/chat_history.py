@@ -174,6 +174,8 @@ class ChatHistory:
             if not response[0]:
                 self.exception_detail = response[1]
                 return None
+            
+            if self._data.debug: logger.info(f'[Chats Delete] Deleted {len(chat_ids)} chats')
         except Exception as e:
             self.exception_detail = str(e)
             if self._data.debug: logger.error(f'[Chats Delete] Unknown exception | Detail: {self.exception_detail}')

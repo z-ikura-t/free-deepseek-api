@@ -18,9 +18,46 @@ import models
 
 client = FastAPI(title='Free DeepSeek API')
 config = Config()
-data = Data(config)
+data = Data()
+data.set_headers(config.token)
 
 logger.add('logs/client.log', rotation='1 MB')
+
+
+
+@client.get('/api/health', tags=['Health'])
+async def health() -> models.HealthModel:
+    '''
+    Check the health status of the API and DeepSeek token validity.
+    
+    Returns:
+    - status (str): "ok" if everything works, "degraded" if any error occurs
+    - token_valid (bool): True if token is valid, False otherwise
+    - user_id (str | None): user ID from DeepSeek (if token is valid)
+    - service (str): service name ("free-deepseek-api")
+    - detail (str | None): error message (if any)
+    
+    Raises:
+    - 422: validation errors
+    - 500: unexpected errors
+    '''
+    
+    await data.check_health()
+    
+    if data.exception_detail is None:
+        return models.HealthModel(
+            status='ok', 
+            user_id=data.user['id'], 
+            token_valid=True, 
+            service='free-deepseek-api'
+        )
+    else:
+        return models.HealthModel(
+            status='degraded', 
+            token_valid=data.user['token_valid'], 
+            detail=data.exception_detail, 
+            service='free-deepseek-api'
+        )
 
 
 
@@ -30,10 +67,10 @@ async def get_chats(start: int | None = None, end: int | None = None, start_date
     Gets all chats and returns their parameters.
     
     Query params:
-    - start (int | None): The starting index of the chat list (inclusive). Default: 0.
-    - end (int | None): The ending index of the chat list (exclusive). Default: None
-    - start_date (str | None): Filter chats updated on or after this date. Format: YYYY-MM-DD.
-    - end_date (str | None): Filter chats updated before this date. Format: YYYY-MM-DD.
+    - start (int | None): the starting index of the chat list (inclusive). Default: 0.
+    - end (int | None): the ending index of the chat list (exclusive). Default: None
+    - start_date (str | None): filter chats updated on or after this date. Format: YYYY-MM-DD.
+    - end_date (str | None): filter chats updated before this date. Format: YYYY-MM-DD.
     
     Behavior:
     - If any date param is provided (start_date or end_date), start and end are ignored:
@@ -345,6 +382,52 @@ async def upload_file(file: UploadFile = File()) -> models.UploadedFileModel:
 
 
 
+@client.get('/api/model', tags=['Model'])
+async def get_model() -> models.DeepSeekModelModel:
+    '''
+    Returns the DeepSeek model.
+    
+    Returns:
+    - value (str): current DeepSeek model
+    
+    Raises:
+    - 422: validation errors
+    '''
+    
+    return models.DeepSeekModelModel(
+        value=config.model
+    )
+
+@client.put('/api/model', tags=['Model'])
+async def set_model(request: models.DeepSeekModelModel) -> models.DeepSeekModelModel:
+    '''
+    Sets the DeepSeek model.
+    
+    Model change applies only to new chats (existing chats keep their original model).
+    
+    Model variants:
+    - "default": instant responses for everyday tasks. Supports internet search, file uploads, and text recognition in images
+    - "expert": deep reasoning for complex tasks. Uses a more powerful model with step‑by‑step logic. Does not support file uploads or multimodal features.
+    - "vision": image recognition mode. Upload and analyze photos, screenshots, PDFs, and diagrams. Can describe scenes, extract text, and interpret structured data.
+    
+    Args:
+    - value (str): DeepSeek model variant
+    
+    Returns:
+    - value (str): updated DeepSeek model
+    
+    Raises:
+    - 422: validation errors
+    '''
+    
+    config.model = request.value
+    
+    return models.DeepSeekModelModel(
+        value=config.model
+    )
+
+
+
 @client.get('/api/feature/search/enabled', tags=['Search'])
 async def get_search() -> models.EnabledModel:
     '''
@@ -549,53 +632,12 @@ async def set_token(request: models.ValueModel) -> models.ValueModel:
     '''
     
     config.token = request.value
+    data.set_headers(config.token)
+    
+    await data.check_health()
+    
+    if not data.exception_detail is None: raise HTTPException(status_code=500, detail=data.exception_detail)
     
     return models.ValueModel(
         value=config.token
-    )
-
-
-
-@client.get('/api/model', tags=['Model'])
-async def get_model() -> models.DeepSeekModelModel:
-    '''
-    Returns the DeepSeek model.
-    
-    Returns:
-    - value (str): current DeepSeek model
-    
-    Raises:
-    - 422: validation errors
-    '''
-    
-    return models.DeepSeekModelModel(
-        value=config.model
-    )
-
-@client.put('/api/model', tags=['Model'])
-async def set_model(request: models.DeepSeekModelModel) -> models.DeepSeekModelModel:
-    '''
-    Sets the DeepSeek model.
-    
-    Model change applies only to new chats (existing chats keep their original model).
-    
-    Model variants:
-    - "default": instant responses for everyday tasks. Supports internet search, file uploads, and text recognition in images
-    - "expert": deep reasoning for complex tasks. Uses a more powerful model with step‑by‑step logic. Does not support file uploads or multimodal features.
-    - "vision": image recognition mode. Upload and analyze photos, screenshots, PDFs, and diagrams. Can describe scenes, extract text, and interpret structured data.
-    
-    Args:
-    - value (str): DeepSeek model variant
-    
-    Returns:
-    - value (str): updated DeepSeek model
-    
-    Raises:
-    - 422: validation errors
-    '''
-    
-    config.model = request.value
-    
-    return models.DeepSeekModelModel(
-        value=config.model
     )
