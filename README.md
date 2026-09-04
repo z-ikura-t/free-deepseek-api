@@ -68,11 +68,11 @@ Once the server is running, full interactive API documentation is available at:
 
 DeepSeek supports three model variants. You can switch models using the `/api/model` endpoint.
 
-| Mode | API Value | Description |
-|------|-----------|-------------|
-| Fast | `default` | Fast responses, supports internet search, files, and images. |
-| Expert | `expert` | Deep reasoning for complex tasks. No internet search, files, or images. |
-| Vision | `vision` | Analyze photos, screenshots, PDFs, diagrams. No internet search. |
+| Model Name | Parameters (Total / Active) | API Value | Description |
+|------------|----------------------------|-----------|----------|
+| DeepSeek-V4-Flash | 284B / 13B | `default` | Fast responses for everyday tasks. Supports internet search, file uploads, and text recognition in images. |
+| DeepSeek-V4-Pro | 1.6T / 49B | `expert` | Deep reasoning for complex tasks. No internet search, file uploads, or multimodal features. |
+| DeepSeek-V4-Flash-Vision-Exp | 284B / 13B | `vision` | Multimodal model. Analyzes photos, screenshots, PDFs, and diagrams. No internet search. |
 
 **Important:**
 - Model changes apply only to new chats.

@@ -354,6 +354,8 @@ async def upload_file(file: UploadFile = File()) -> models.UploadedFileModel:
     '''
     Upload a file to the DeepSeek server.
     
+    Maximum file size: 100 MB.
+    
     Args:
     - file (UploadFile): the uploaded file object
     
@@ -406,9 +408,9 @@ async def set_model(request: models.DeepSeekModelModel) -> models.DeepSeekModelM
     Model change applies only to new chats (existing chats keep their original model).
     
     Model variants:
-    - "default": instant responses for everyday tasks. Supports internet search, file uploads, and text recognition in images
-    - "expert": deep reasoning for complex tasks. Uses a more powerful model with step‑by‑step logic. Does not support file uploads or multimodal features.
-    - "vision": image recognition mode. Upload and analyze photos, screenshots, PDFs, and diagrams. Can describe scenes, extract text, and interpret structured data.
+    - DeepSeek-V4-Flash, 284B / 13B ("default"): instant responses for everyday tasks. Supports internet search, file uploads, and text recognition in images
+    - DeepSeek-V4-Pro, 1.6T / 49B ("expert"): deep reasoning for complex tasks. Uses a more powerful model with step‑by‑step logic. Does not support file uploads or multimodal features.
+    - DeepSeek-V4-Flash-Vision-Exp, 284B / 13B ("vision"): image recognition mode. Upload and analyze photos, screenshots, PDFs, and diagrams. Can describe scenes, extract text, and interpret structured data.
     
     Args:
     - value (str): DeepSeek model variant
