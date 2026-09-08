@@ -1,63 +1,57 @@
-from fastapi import FastAPI, HTTPException, File, UploadFile, status
 from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, File, UploadFile, status
 
-import json, uuid
+import sys, json, uuid
 from loguru import logger
 from datetime import date, datetime
 
-from src.data import Data
 from src.chat import Chat
-from src.data import Config
 from src.file import File as dsFile
 from src.message import Message
+from src.data import DATA, CONFIG
 from src.chat_history import ChatHistory
+from src.exceptions import DeepSeekError, DeepSeekResponseError, DeepSeekSSEError, UnknownError, FileTooLargeError, DeepSeekFileContentEmpty, DeepSeekFileUploadError
 
 import models
 
 
 
 client = FastAPI(title='Free DeepSeek API')
-config = Config()
-data = Data()
-data.set_headers(config.token)
 
-logger.add('logs/client.log', rotation='1 MB')
+logger.remove()
+logger.add(sys.stderr, level='INFO')
+logger.add('logs/client.log', rotation='1 MB', level='INFO')
 
 
 
 @client.get('/api/health', tags=['Health'])
-async def health() -> models.HealthModel:
+async def check_health() -> models.HealthModel:
     '''
     Check the health status of the API and DeepSeek token validity.
     
     Returns:
-    - status (str): "ok" if everything works, "degraded" if any error occurs
-    - token_valid (bool): True if token is valid, False otherwise
+    - ok (bool): True if everything works, False if any error occurs
     - user_id (str | None): user ID from DeepSeek (if token is valid)
-    - service (str): service name ("free-deepseek-api")
     - detail (str | None): error message (if any)
+    - service (str): service name ("free-deepseek-api")
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
     '''
     
-    await data.check_health()
+    try:
+        health = await DATA.check_health()
+    except (DeepSeekError, DeepSeekResponseError, UnknownError) as e:
+        return models.HealthModel(
+            ok=False, 
+            detail=str(e)
+        )
     
-    if data.exception_detail is None:
-        return models.HealthModel(
-            status='ok', 
-            user_id=data.user['id'], 
-            token_valid=True, 
-            service='free-deepseek-api'
-        )
-    else:
-        return models.HealthModel(
-            status='degraded', 
-            token_valid=data.user['token_valid'], 
-            detail=data.exception_detail, 
-            service='free-deepseek-api'
-        )
+    return models.HealthModel(
+        ok=True, 
+        user_id=health['user_id']
+    )
 
 
 
@@ -91,34 +85,40 @@ async def get_chats(start: int | None = None, end: int | None = None, start_date
         - model_type (str): the DeepSeek model used in the chat
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    if start_date or end_date:
-        if start_date: start = datetime.combine(start_date, datetime.min.time()).timestamp()
-        else: start = None
-        if end_date: end = datetime.combine(end_date, datetime.min.time()).timestamp()
-        else: end = None
-        if start_date and end_date:
-            if end < start: raise HTTPException(status_code=422, detail='"end_date" must be greater than or equal to "start_date"')
-    else:
-        if not start is None and not end is None:
-            if end < start: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to "start"')
-        if not start is None:
-            if start < 0: raise HTTPException(status_code=422, detail='"start" must be greater than or equal to 0')
-        else: start = 0
-        if not end is None:
-            if end < 1: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to 1')
-        else: end = None
-    
-    chat_history = ChatHistory(data)
-    await chat_history.fetch(start, end)
-    
-    if not chat_history.exception_detail is None: raise HTTPException(status_code=500, detail=chat_history.exception_detail)
+    try:
+        if start_date or end_date:
+            if start_date: start = datetime.combine(start_date, datetime.min.time()).timestamp()
+            else: start = None
+            if end_date: end = datetime.combine(end_date, datetime.min.time()).timestamp()
+            else: end = None
+            if start_date and end_date:
+                if end < start: raise HTTPException(status_code=422, detail='"end_date" must be greater than or equal to "start_date"')
+            
+            chat_history = await ChatHistory.load_timestamp(start, end)
+        else:
+            if not start is None and not end is None:
+                if end < start: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to "start"')
+            if not start is None:
+                if start < 0: raise HTTPException(status_code=422, detail='"start" must be greater than or equal to 0')
+            else: start = 0
+            if not end is None:
+                if end < 1: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to 1')
+            else: end = None
+            
+            chat_history = await ChatHistory.load_range(start, end)
+    except HTTPException: raise
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     return models.ChatHistoryModel(
-        chats=chat_history.chats
+        chats=chat_history['chats']
     )
 
 
@@ -132,14 +132,17 @@ async def delete_chats(request: models.DeleteChatsModel) -> None:
     - chat_ids (list[str]): list of chat IDs to delete
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    chat_history = ChatHistory(data)
-    await chat_history.delete_chats(request.chat_ids)
-    
-    if not chat_history.exception_detail is None: raise HTTPException(status_code=500, detail=chat_history.exception_detail)
+    try:
+        chat_history = await ChatHistory.delete_chats(request.chat_ids)
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 
@@ -158,24 +161,29 @@ async def create_new_chat() -> models.ChatModel:
     - messages (list): empty list for the new chat
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    chat = Chat(data)
-    await chat.fetch()
-    
-    if not chat.exception_detail is None: raise HTTPException(status_code=500, detail=chat.exception_detail)
+    try:
+        new_chat = await Chat.create()
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     return models.ChatModel(
-        chat_id=chat.chat_id,
-        title=chat.title,
-        inserted_at=chat.inserted_at,
-        updated_at=chat.updated_at,
-        current_message_id=chat.current_message_id,
-        model_type=chat.model_type,
-        messages=chat.messages
+        chat_id=new_chat['chat_id'],
+        title=new_chat['title'],
+        inserted_at=new_chat['inserted_at'],
+        updated_at=new_chat['updated_at'],
+        current_message_id=new_chat['current_message_id'],
+        model_type=new_chat['model_type'],
+        messages=new_chat['messages']
     )
+
+
 
 @client.get('/api/chat/{chat_id}', tags=['Chat'])
 async def get_chat(chat_id: str) -> models.ChatModel:
@@ -204,23 +212,29 @@ async def get_chat(chat_id: str) -> models.ChatModel:
             - size (int): size of the file in bytes
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    chat = Chat(data)
-    await chat.fetch(chat_id)
+    try: uuid.UUID(chat_id)
+    except ValueError: raise HTTPException(status_code=422, detail='Invalid chat ID format. Must be a valid UUID.')
     
-    if not chat.exception_detail is None: raise HTTPException(status_code=500, detail=chat.exception_detail)
+    try:
+        chat = await Chat.load(chat_id)
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     return models.ChatModel(
-        chat_id=chat.chat_id,
-        title=chat.title,
-        inserted_at=chat.inserted_at,
-        updated_at=chat.updated_at,
-        current_message_id=chat.current_message_id,
-        model_type=chat.model_type,
-        messages=chat.messages
+        chat_id=chat['chat_id'],
+        title=chat['title'],
+        inserted_at=chat['inserted_at'],
+        updated_at=chat['updated_at'],
+        current_message_id=chat['current_message_id'],
+        model_type=chat['model_type'],
+        messages=chat['messages']
     )
 
 
@@ -239,113 +253,25 @@ async def update_chat_title(chat_id: str, request: models.RequestNewChatTitleMod
     - title (str): new title of the chat
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
     try: uuid.UUID(chat_id)
     except ValueError: raise HTTPException(status_code=422, detail='Invalid chat ID format. Must be a valid UUID.')
     
-    chat = Chat(data)
-    await chat.update_title(chat_id, request.title)
-    
-    if not chat.exception_detail is None: raise HTTPException(status_code=500, detail=chat.exception_detail)
+    try:
+        chat = await Chat.update_title(chat_id, request.title)
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     return models.ResponseNewChatTitleModel(
-        chat_id=chat_id, 
-        title=chat.title
+        chat_id=chat['chat_id'], 
+        title=chat['title']
     )
-
-
-
-@client.post('/api/chat/generate', tags=['Messages'], status_code=status.HTTP_201_CREATED, response_model=None)
-async def generate(request: models.RequestMessageModel, stream: bool = False) -> models.SplitMessageModel | StreamingResponse:
-    '''
-    Create a new user message in the chat and generate an assistant response.
-    
-    Query params:
-    - stream (bool): enable Server-Sent Events (SSE) streaming. If True, response is sent as a stream of events. Default is False.
-    
-    Args:
-    - chat_id (str): ID of the chat
-    - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
-    - prompt (str): text of the message
-    - file_ids (list[str]): list of the uploaded file ids
-    
-    Returns:
-    - user_message (dict): user message object
-        - message_id (int): ID of the message
-        - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
-        - role (str): "USER" for the user message
-        - content (str): text of the message
-        - files (list[dict]): list of files attached to the message
-            - file_id (str): ID of the uploaded file
-            - name (str): name of the file
-            - size (int): size of the file in bytes
-        
-    - assistant_message (dict): assistant message object
-        - message_id (int): ID of the message
-        - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
-        - role (str): "USER" for the user message
-        - think (str | None): the model's internal reasoning or chain‑of‑thought text
-        - content (str): text of the message
-        - files (list[dict]): list of files attached to the message
-    
-    Raises:
-    - 422: validation errors
-    - 500: unexpected errors
-    '''
-    
-    if config.base_prompt_enabled: request.prompt = f'{config.base_prompt}\n{request.prompt}'
-    
-    message = Message(data)
-    if not stream:
-        await message.fetch(config, request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
-        
-        if not message.exception_detail is None: raise HTTPException(status_code=500, detail=message.exception_detail)
-        
-        user_message = models.UserMessageModel(
-            message_id=message.parent_message_id,
-            parent_message_id=request.parent_message_id,
-            role='USER',
-            content=request.prompt, 
-            files=message.files
-        )
-        assistant_message = models.AssistantMessageModel(
-            message_id=message.message_id,
-            parent_message_id=message.parent_message_id,
-            role='ASSISTANT',
-            think=message.think,
-            content=message.content
-        )
-        
-        return models.SplitMessageModel(
-            user_message=user_message, 
-            assistant_message=assistant_message
-        )
-    else:
-        async def fetch_stream():
-            async for line in message.fetch_stream(config, request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids):
-                yield line
-            
-            if message.exception_detail is None:
-                yield 'event: messages_data\n'
-                yield f'data: {json.dumps({
-                    "message_id": message.parent_message_id,
-                    "parent_message_id": request.parent_message_id,
-                    "role": "USER"
-                })}\n\n'
-                yield f'data: {json.dumps({
-                    "message_id": message.message_id,
-                    "parent_message_id": message.parent_message_id,
-                    "role": "ASSISTANT"
-                })}\n\n'
-            yield 'event: close\n\n'
-        
-        return StreamingResponse(
-            fetch_stream(), 
-            media_type='text/event-stream'
-        )
 
 
 
@@ -366,21 +292,103 @@ async def upload_file(file: UploadFile = File()) -> models.UploadedFileModel:
     - content_type (str): MIME type of the file
     
     Raises:
-    - 422: validation errors
+    - 413: File too large (exceeds 100 MB limit)
+    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    uploaded_file = dsFile(data)
-    await uploaded_file.fetch(config, file)
-    
-    if not uploaded_file.exception_detail is None: raise HTTPException(status_code=500, detail=uploaded_file.exception_detail)
+    try:
+        uploaded_file = await dsFile.upload(file)
+    except (DeepSeekError, DeepSeekResponseError, DeepSeekFileUploadError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except FileTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e))
+    except DeepSeekFileContentEmpty as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     return models.UploadedFileModel(
-        file_id=uploaded_file.file_id,
+        file_id=uploaded_file['file_id'],
         name=file.filename,
         size=file.size,
         content_type=file.content_type
     )
+
+
+
+@client.post('/api/chat/generate', tags=['Messages'], status_code=status.HTTP_201_CREATED, response_model=None)
+async def generate(request: models.RequestMessageModel, stream: bool = False) -> models.SplitMessageModel | StreamingResponse:
+    '''
+    Create a new user message in the chat and generate an assistant response.
+    
+    Query params:
+    - stream (bool): enable Server-Sent Events (SSE) streaming. If True, response is sent as a stream of events. Default is False.
+    
+    Args:
+    - chat_id (str): ID of the chat
+    - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
+    - prompt (str): text of the message
+    - file_ids (list[str]): list of the uploaded file ids
+    
+    Returns:
+    - user (dict): user message object
+        - message_id (int): ID of the message
+        - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
+        - role (str): "USER" for the user message
+        - content (str): text of the message
+        - files (list[dict]): list of files attached to the message
+            - file_id (str): ID of the uploaded file
+            - name (str): name of the file
+            - size (int): size of the file in bytes
+        
+    - assistant (dict): assistant message object
+        - message_id (int): ID of the message
+        - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
+        - role (str): "USER" for the user message
+        - think (str | None): the model's internal reasoning or chain‑of‑thought text
+        - content (str): text of the message
+        - files (list[dict]): list of files attached to the message
+    
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
+    
+    if not stream:
+        try:
+            message = await Message.generate_json(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
+            
+            user = models.UserMessageModel(
+                message_id=message['parent_message_id'],
+                parent_message_id=request.parent_message_id,
+                role='USER',
+                content=request.prompt, 
+                files=message['files']
+            )
+            assistant = models.AssistantMessageModel(
+                message_id=message['message_id'],
+                parent_message_id=message['parent_message_id'],
+                role='ASSISTANT',
+                think=message['think'],
+                content=message['content']
+            )
+            
+            return models.SplitMessageModel(
+                user=user, 
+                assistant=assistant
+            )
+        except (DeepSeekError, DeepSeekResponseError) as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        except UnknownError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        return StreamingResponse(
+            Message.generate_stream(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
+            media_type='text/event-stream'
+        )
 
 
 
@@ -393,12 +401,14 @@ async def get_model() -> models.DeepSeekModelModel:
     - value (str): current DeepSeek model
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
     return models.DeepSeekModelModel(
-        value=config.model
+        value=CONFIG.model
     )
+
+
 
 @client.put('/api/model', tags=['Model'])
 async def set_model(request: models.DeepSeekModelModel) -> models.DeepSeekModelModel:
@@ -419,13 +429,13 @@ async def set_model(request: models.DeepSeekModelModel) -> models.DeepSeekModelM
     - value (str): updated DeepSeek model
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
-    config.model = request.value
+    CONFIG.model = request.value
     
     return models.DeepSeekModelModel(
-        value=config.model
+        value=CONFIG.model
     )
 
 
@@ -441,12 +451,14 @@ async def get_search() -> models.EnabledModel:
     - enabled (bool): True if search is enabled, False otherwise
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
     return models.EnabledModel(
-        enabled=config.search_enabled
+        enabled=CONFIG.search_enabled
     )
+
+
 
 @client.put('/api/feature/search/enabled', tags=['Search'])
 async def set_search(request: models.EnabledModel) -> models.EnabledModel:
@@ -462,13 +474,13 @@ async def set_search(request: models.EnabledModel) -> models.EnabledModel:
     - enabled (bool): True if search is enabled, False otherwise
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
-    config.search_enabled = request.enabled
+    CONFIG.search_enabled = request.enabled
     
     return models.EnabledModel(
-        enabled=config.search_enabled
+        enabled=CONFIG.search_enabled
     )
 
 
@@ -484,12 +496,14 @@ async def get_thinking() -> models.EnabledModel:
     - enabled (bool): True if thinking is enabled, False otherwise
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
     return models.EnabledModel(
-        enabled=config.thinking_enabled
+        enabled=CONFIG.thinking_enabled
     )
+
+
 
 @client.put('/api/feature/thinking/enabled', tags=['Thinking'])
 async def set_thinking(request: models.EnabledModel) -> models.EnabledModel:
@@ -505,13 +519,13 @@ async def set_thinking(request: models.EnabledModel) -> models.EnabledModel:
     - enabled (bool): True if thinking is enabled, False otherwise
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
-    config.thinking_enabled = request.enabled
+    CONFIG.thinking_enabled = request.enabled
     
     return models.EnabledModel(
-        enabled=config.thinking_enabled
+        enabled=CONFIG.thinking_enabled
     )
 
 
@@ -527,12 +541,14 @@ async def get_base_prompt_enabled() -> models.EnabledModel:
     - enabled (bool): True if base prompt is enabled, False otherwise
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
     return models.EnabledModel(
-        enabled=config.base_prompt_enabled
+        enabled=CONFIG.base_prompt_enabled
     )
+
+
 
 @client.put('/api/feature/base_prompt/enabled', tags=['Base Prompt'])
 async def set_base_prompt_enabled(request: models.EnabledModel) -> models.EnabledModel:
@@ -548,13 +564,13 @@ async def set_base_prompt_enabled(request: models.EnabledModel) -> models.Enable
     - enabled (bool): True if base prompt is enabled, False otherwise
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
-    config.base_prompt_enabled = request.enabled
+    CONFIG.base_prompt_enabled = request.enabled
     
     return models.EnabledModel(
-        enabled=config.base_prompt_enabled
+        enabled=CONFIG.base_prompt_enabled
     )
 
 
@@ -570,12 +586,14 @@ async def get_base_prompt() -> models.ValueModel:
     - value (str): current value of the base prompt
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
     return models.ValueModel(
-        value=config.base_prompt
+        value=CONFIG.base_prompt
     )
+
+
 
 @client.put('/api/feature/base_prompt', tags=['Base Prompt'])
 async def set_base_prompt(request: models.ValueModel) -> models.ValueModel:
@@ -591,13 +609,13 @@ async def set_base_prompt(request: models.ValueModel) -> models.ValueModel:
     - value (str): updated value of the base prompt
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
-    config.base_prompt = request.value
+    CONFIG.base_prompt = request.value
     
     return models.ValueModel(
-        value=config.base_prompt
+        value=CONFIG.base_prompt
     )
 
 
@@ -611,12 +629,14 @@ async def get_token() -> models.ValueModel:
     - value (str): current DeepSeek API token
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
     '''
     
     return models.ValueModel(
-        value=config.token
+        value=CONFIG.token
     )
+
+
 
 @client.put('/api/token', tags=['Token'])
 async def set_token(request: models.ValueModel) -> models.ValueModel:
@@ -630,16 +650,20 @@ async def set_token(request: models.ValueModel) -> models.ValueModel:
     - value (str): updated DeepSeek API token
     
     Raises:
-    - 422: validation errors
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token or unexpected response format)
     '''
     
-    config.token = request.value
-    data.set_headers(config.token)
+    CONFIG.token = request.value
     
-    await data.check_health()
-    
-    if not data.exception_detail is None: raise HTTPException(status_code=500, detail=data.exception_detail)
+    try:
+        health = await DATA.check_health()
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     return models.ValueModel(
-        value=config.token
+        value=CONFIG.token
     )

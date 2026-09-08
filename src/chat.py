@@ -1,49 +1,82 @@
 from loguru import logger
-from traceback import print_exc
 from curl_cffi.requests import AsyncSession
 
-from .data import Data
+from .data import DATA
 from .utils import extract_from_response
+from .exceptions import APIError, DeepSeekError, UnknownError
 
 
 
 class Chat:
-    def __init__(self, data: Data):
-        self._data = data
-        
-        self.exception_detail = None
-        
-        self.chat_id = None
-        self.title = None
-        self.inserted_at = None
-        self.updated_at = None
-        self.current_message_id = None
-        self.model_type = None
-        self.messages = []
-    
-    
-    async def fetch(self, chat_id: str | None=None) -> None:
+    @classmethod
+    async def create(cls) -> dict:
         try:
-            self.chat_id = chat_id
-            if not chat_id is None:
-                async with AsyncSession() as session:
-                    response = await session.get(
-                        f'{self._data.scheme}{self._data.authority}/api/v0/chat/history_messages?chat_session_id={self.chat_id}', 
-                        headers=self._data.headers, 
-                        impersonate=self._data.impersonate
-                    )
+            async with AsyncSession() as session:
+                response = await session.post(
+                    f'{DATA.scheme}{DATA.authority}/api/v0/chat_session/create', 
+                    headers=DATA.headers, 
+                    impersonate=DATA.impersonate
+                )
                 
-                response = extract_from_response('Chat', response, debug=self._data.debug)
-                if not response[0]:
-                    self.exception_detail = response[1]
-                    return None
-                else: response = response[1]
+                response = extract_from_response('Create Chat', response)
                 
-                self.title = response['data']['biz_data']['chat_session']['title']
-                self.inserted_at = response['data']['biz_data']['chat_session']['inserted_at']
-                self.updated_at = response['data']['biz_data']['chat_session']['updated_at']
-                self.current_message_id = response['data']['biz_data']['chat_session']['current_message_id']
-                self.model_type = response['data']['biz_data']['chat_session']['model_type']
+                chat_session = response['data']['biz_data']['chat_session']
+                if not chat_session:
+                    detail = 'Chat session is empty'
+                    logger.error(f'[Create Chat] Not created | Detail: {detail}')
+                    raise DeepSeekError(detail)
+                
+                chat_id = chat_session['id']
+                inserted_at = chat_session['inserted_at']
+                updated_at = chat_session['updated_at']
+                model_type = chat_session['model_type']
+                
+                if not chat_id:
+                    detail = 'Chat ID is empty'
+                    logger.error(f'[Create Chat] Not created | Detail: {detail}')
+                    raise DeepSeekError(detail)
+                
+                logger.info(f'[Create Chat] Created | Chat ID: {chat_id}')
+                return {
+                    'chat_id': chat_id, 
+                    'title': None, 
+                    'inserted_at': inserted_at, 
+                    'updated_at': updated_at, 
+                    'current_message_id': None, 
+                    'model_type': model_type, 
+                    'messages': []
+                }
+        except APIError: raise
+        except Exception as e:
+            detail = str(e)
+            logger.exception(f'[Create Chat] Unknown exception | Detail: {detail}')
+            raise UnknownError(detail) from e
+    
+    
+    @classmethod
+    async def load(cls, chat_id: str) -> dict:
+        try:
+            async with AsyncSession() as session:
+                response = await session.get(
+                    f'{DATA.scheme}{DATA.authority}/api/v0/chat/history_messages?chat_session_id={chat_id}', 
+                    headers=DATA.headers, 
+                    impersonate=DATA.impersonate
+                )
+                
+                response = extract_from_response('Get Chat', response)
+                
+                chat_session = response['data']['biz_data']['chat_session']
+                if not chat_session:
+                    detail = 'Chat session is empty'
+                    logger.error(f'[Get Chat] Not created | Detail: {detail}')
+                    raise DeepSeekError(detail)
+                
+                title = chat_session['title']
+                inserted_at = chat_session['inserted_at']
+                updated_at = chat_session['updated_at']
+                current_message_id = chat_session['current_message_id']
+                model_type = chat_session['model_type']
+                messages = []
                 
                 chat_messages = response['data']['biz_data']['chat_messages']
                 for chat_message in chat_messages:
@@ -58,7 +91,7 @@ class Chat:
                             message_think = fragment['content']
                         elif fragment['type'] in ('REQUEST', 'RESPONSE'):
                             message_content = fragment['content']
-                    self.messages.append({
+                    messages.append({
                         'message_id': chat_message['message_id'], 
                         'parent_message_id': chat_message['parent_id'], 
                         'role': chat_message['role'], 
@@ -71,65 +104,48 @@ class Chat:
                         } for message_file in message_files]
                     })
                 
-                if self._data.debug: logger.info(f'[Chat] Retrieved | Chat ID: {self.chat_id}')
-            else:
-                async with AsyncSession() as session:
-                    response = await session.post(
-                        f'{self._data.scheme}{self._data.authority}/api/v0/chat_session/create', 
-                        headers = self._data.headers, 
-                        impersonate=self._data.impersonate
-                    )
-                    
-                    response = extract_from_response('Chat', response, debug=self._data.debug)
-                    if not response[0]:
-                        self.exception_detail = response[1]
-                        return None
-                    else: response = response[1]
-                    
-                    self.chat_id = response['data']['biz_data']['chat_session']['id']
-                    self.title = None
-                    self.inserted_at = response['data']['biz_data']['chat_session']['inserted_at']
-                    self.updated_at = response['data']['biz_data']['chat_session']['updated_at']
-                    self.current_message_id = None
-                    self.model_type = response['data']['biz_data']['chat_session']['model_type']
-                    self.messages = []
-                    
-                    if not self.chat_id:
-                        self.exception_detail = 'chat ID is empty'
-                        if self._data.debug: logger.info(f'[Chat] Not created | Detail: {self.exception_detail}')
-                        return None
-                    if self._data.debug: logger.info(f'[Chat] Created | Chat ID: {self.chat_id}')
+                logger.info(f'[Get chat] Retrieved | Chat ID: {chat_id}')
+                return {
+                    'chat_id': chat_id, 
+                    'title': title, 
+                    'inserted_at': inserted_at, 
+                    'updated_at': updated_at, 
+                    'current_message_id': current_message_id, 
+                    'model_type': model_type, 
+                    'messages': messages
+                }
+        except APIError: raise
         except Exception as e:
-            self.exception_detail = str(e)
-            if self._data.debug: logger.error(f'[Chat] Unknown exception | Detail: {self.exception_detail}')
-            print_exc()
+            detail = str(e)
+            logger.exception(f'[Get Chat] Unknown exception | Detail: {detail}')
+            raise UnknownError(detail) from e
     
     
-    async def update_title(self, chat_id: str, new_title: str) -> None:
+    @classmethod
+    async def update_title(cls, chat_id: str, new_title: str) -> dict:
         try:
-            self.chat_id = chat_id
-            
             async with AsyncSession() as session:
                 response = await session.post(
-                    f'{self._data.scheme}{self._data.authority}/api/v0/chat_session/update_title', 
-                    headers=self._data.headers, 
-                    impersonate=self._data.impersonate, 
+                    f'{DATA.scheme}{DATA.authority}/api/v0/chat_session/update_title', 
+                    headers=DATA.headers, 
+                    impersonate=DATA.impersonate, 
                     json={
-                        'chat_session_id': self.chat_id, 
+                        'chat_session_id': chat_id, 
                         'title': new_title
                     }
                 )
             
-            response = extract_from_response('Chat Title', response, debug=self._data.debug)
-            if not response[0]:
-                self.exception_detail = response[1]
-                return None
-            else: response = response[1]
+            response = extract_from_response('Chat Title', response)
             
-            self.title = response['data']['biz_data']['title']
+            title = response['data']['biz_data']['title']
             
-            if self._data.debug: logger.info(f'[Chat Title] Title changed | New title: {self.title}')
+            logger.info(f'[Chat Title] Title changed | New title: {title}')
+            return {
+                'chat_id': chat_id, 
+                'title': title
+            }
+        except APIError: raise
         except Exception as e:
-            self.exception_detail = str(e)
-            if self._data.debug: logger.error(f'[Chat Title] Unknown exception | Detail: {self.exception_detail}')
-            print_exc()
+            detail = str(e)
+            logger.exception(f'[Chat Title] Unknown exception | Detail: {detail}')
+            raise UnknownError(detail) from e

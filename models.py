@@ -17,9 +17,8 @@ class ChatIDMixin(BaseModel):
 
 
 class HealthModel(BaseModel):
-    status: str = Field(min_length=1)
+    ok: bool
     user_id: str | None = Field(min_length=1)
-    token_valid: bool
     detail: str | None = Field(min_length=1)
     service: str = Field(min_length=1, default='free-deepseek-api')
 
@@ -99,8 +98,8 @@ class AssistantMessageModel(BaseModel):
     content: str = Field(min_length=1)
 
 class SplitMessageModel(BaseModel):
-    user_message: UserMessageModel
-    assistant_message: AssistantMessageModel
+    user: UserMessageModel
+    assistant: AssistantMessageModel
 
 
 
