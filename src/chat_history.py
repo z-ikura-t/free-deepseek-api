@@ -1,9 +1,9 @@
 from loguru import logger
 from curl_cffi.requests import AsyncSession, Response
 
-from .data import DATA
+from . import settings
 from .utils import extract_from_response
-from .exceptions import APIError, UnknownError
+from .exceptions import APIError, ValidationError, UnknownError
 
 
 
@@ -15,10 +15,10 @@ class ChatHistory:
     async def _get_chats(cls, updated_at: float | None = None) -> dict:
         async with AsyncSession() as session:
             response = await session.get(
-                f'{DATA.scheme}{DATA.authority}/api/v0/chat_session/fetch_page', 
-                headers=DATA.headers, 
+                f'{settings.DEEPSEEK_URL}/chat_session/fetch_page', 
+                headers=settings.HEADERS, 
                 params={} if updated_at is None else {'lte_cursor.pinned': False, 'lte_cursor.updated_at': updated_at}, 
-                impersonate=DATA.impersonate, 
+                impersonate=settings.IMPERSONATE, 
                 timeout=10
             )
         
@@ -44,7 +44,6 @@ class ChatHistory:
             chats['chats'].append({
                 'chat_id': chat_session['id'], 
                 'title': chat_session['title'], 
-                'model_type': chat_session['model_type'], 
                 'updated_at': chat_session['updated_at']
         })
         return chats
@@ -70,8 +69,13 @@ class ChatHistory:
     
     
     @classmethod
-    async def load_range(cls, start: int = 0, end: int | None = None) -> dict:
+    async def load_range(cls, start: int | None = None, end: int | None = None) -> dict:
         try:
+            if start is None: start = 0
+            if start < 0: raise ValidationError('Start index must be greater than or equal to 0')
+            if not end is None and end < 1: raise ValidationError('End index must be greater than or equal to 1')
+            if not end is None and end < start: raise ValidationError('End index must be greater than or equal to start index')
+            
             chats = {'chats': []}
             cursor_chats_count = 100
             
@@ -134,8 +138,10 @@ class ChatHistory:
     @classmethod
     async def load_timestamp(cls, start_timestamp: float | None = None, end_timestamp: float | None = None) -> dict:
         try:
-            chats = {'chats': []}
+            if start_timestamp and end_timestamp and end_timestamp < start_timestamp: raise ValidationError('End timestamp must be greater than or equal to start timestamp')
             start_timestamp, end_timestamp = end_timestamp, start_timestamp
+            
+            chats = {'chats': []}
             
             response = await cls._get_chats(start_timestamp if not start_timestamp is None else None)
             updated_at = cls._get_updated_at(response)
@@ -178,9 +184,9 @@ class ChatHistory:
         try:
             async with AsyncSession() as session:
                 response = await session.post(
-                    f'{DATA.scheme}{DATA.authority}/api/v0/chat_session/delete', 
-                    headers=DATA.headers, 
-                    impersonate=DATA.impersonate, 
+                    f'{settings.DEEPSEEK_URL}/chat_session/delete', 
+                    headers=settings.HEADERS, 
+                    impersonate=settings.IMPERSONATE, 
                     json={
                         'chat_session_ids': chat_ids
                     }

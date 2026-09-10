@@ -1,18 +1,26 @@
 from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, HTTPException, File, UploadFile, status
+from fastapi import FastAPI, HTTPException, status
 
 import sys, json, uuid
 from loguru import logger
 from datetime import date, datetime
 
-from src.chat import Chat
-from src.file import File as dsFile
-from src.message import Message
-from src.data import DATA, CONFIG
-from src.chat_history import ChatHistory
-from src.exceptions import DeepSeekError, DeepSeekResponseError, DeepSeekSSEError, UnknownError, FileTooLargeError, DeepSeekFileContentEmpty, DeepSeekFileUploadError
-
 import models
+
+from src.chat import Chat
+from src.file import Files
+from src.message import Message
+from src.health import check_health
+from src.chat_history import ChatHistory
+
+from src import settings
+from src.exceptions import (
+    ValidationError, 
+    DeepSeekError, 
+    DeepSeekResponseError, 
+    DeepSeekSSEError, 
+    UnknownError
+)
 
 
 
@@ -24,8 +32,14 @@ logger.add('logs/client.log', rotation='1 MB', level='INFO')
 
 
 
+@client.on_event('startup')
+async def init() -> None:
+    if not settings.DEEPSEEK_TOKEN: raise ValueError('DEEPSEEK_TOKEN not found in .env file or is empty')
+
+
+
 @client.get('/api/health', tags=['Health'])
-async def check_health() -> models.HealthModel:
+async def health() -> models.HealthModel:
     '''
     Check the health status of the API and DeepSeek token validity.
     
@@ -41,7 +55,7 @@ async def check_health() -> models.HealthModel:
     '''
     
     try:
-        health = await DATA.check_health()
+        health_status = await check_health()
     except (DeepSeekError, DeepSeekResponseError, UnknownError) as e:
         return models.HealthModel(
             ok=False, 
@@ -49,8 +63,9 @@ async def check_health() -> models.HealthModel:
         )
     
     return models.HealthModel(
-        ok=True, 
-        user_id=health['user_id']
+        ok=health_status['ok'], 
+        user_id=health_status['user_id'], 
+        detail=health_status['detail']
     )
 
 
@@ -82,7 +97,6 @@ async def get_chats(start: int | None = None, end: int | None = None, start_date
         - chat_id (str): ID of the chat
         - title (str): title of the chat
         - updated_at (float): timestamp when chat messages were updated
-        - model_type (str): the DeepSeek model used in the chat
     
     Raises:
     - 422: validation errors (invalid input, wrong format)
@@ -92,26 +106,13 @@ async def get_chats(start: int | None = None, end: int | None = None, start_date
     
     try:
         if start_date or end_date:
-            if start_date: start = datetime.combine(start_date, datetime.min.time()).timestamp()
-            else: start = None
-            if end_date: end = datetime.combine(end_date, datetime.min.time()).timestamp()
-            else: end = None
-            if start_date and end_date:
-                if end < start: raise HTTPException(status_code=422, detail='"end_date" must be greater than or equal to "start_date"')
-            
-            chat_history = await ChatHistory.load_timestamp(start, end)
+            if start_date: start_date = datetime.combine(start_date, datetime.min.time()).timestamp()
+            if end_date: end_date = datetime.combine(end_date, datetime.min.time()).timestamp()
+            chat_history = await ChatHistory.load_timestamp(start_date, end_date)
         else:
-            if not start is None and not end is None:
-                if end < start: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to "start"')
-            if not start is None:
-                if start < 0: raise HTTPException(status_code=422, detail='"start" must be greater than or equal to 0')
-            else: start = 0
-            if not end is None:
-                if end < 1: raise HTTPException(status_code=422, detail='"end" must be greater than or equal to 1')
-            else: end = None
-            
             chat_history = await ChatHistory.load_range(start, end)
-    except HTTPException: raise
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -138,7 +139,7 @@ async def delete_chats(request: models.DeleteChatsModel) -> None:
     '''
     
     try:
-        chat_history = await ChatHistory.delete_chats(request.chat_ids)
+        await ChatHistory.delete_chats(request.chat_ids)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -157,7 +158,6 @@ async def create_new_chat() -> models.ChatModel:
     - inserted_at (float): timestamp when chat was created
     - updated_at (float): timestamp when chat was created
     - current_message_id (None): None for the new chat
-    - model_type (str): "default" for the new chat
     - messages (list): empty list for the new chat
     
     Raises:
@@ -179,7 +179,6 @@ async def create_new_chat() -> models.ChatModel:
         inserted_at=new_chat['inserted_at'],
         updated_at=new_chat['updated_at'],
         current_message_id=new_chat['current_message_id'],
-        model_type=new_chat['model_type'],
         messages=new_chat['messages']
     )
 
@@ -199,7 +198,6 @@ async def get_chat(chat_id: str) -> models.ChatModel:
     - inserted_at (float): timestamp when chat was created
     - updated_at (float): timestamp when chat messages were updated
     - current_message_id (int | None): last message id
-    - model_type (str): the DeepSeek model used in the chat
     - messages (list[dict]): list of chat messages
         - message_id (int): ID of the message
         - parent_message_id (int | None): ID of the parent message
@@ -228,12 +226,11 @@ async def get_chat(chat_id: str) -> models.ChatModel:
         raise HTTPException(status_code=500, detail=str(e))
     
     return models.ChatModel(
-        chat_id=chat['chat_id'],
-        title=chat['title'],
-        inserted_at=chat['inserted_at'],
-        updated_at=chat['updated_at'],
-        current_message_id=chat['current_message_id'],
-        model_type=chat['model_type'],
+        chat_id=chat['chat_id'], 
+        title=chat['title'], 
+        inserted_at=chat['inserted_at'], 
+        updated_at=chat['updated_at'], 
+        current_message_id=chat['current_message_id'], 
         messages=chat['messages']
     )
 
@@ -275,45 +272,33 @@ async def update_chat_title(chat_id: str, request: models.RequestNewChatTitleMod
 
 
 
-@client.post('/api/file/upload', tags=['File'], status_code=status.HTTP_201_CREATED)
-async def upload_file(file: UploadFile = File()) -> models.UploadedFileModel:
+@client.post('/api/files/upload', tags=['Files'], status_code=status.HTTP_201_CREATED)
+async def upload_files(request: models.FilePathsModel) -> models.UploadedFilesModel:
     '''
-    Upload a file to the DeepSeek server.
+    Upload one or more files to the DeepSeek server.
     
-    Maximum file size: 100 MB.
+    Maximum file size: 100 MB per file.
     
     Args:
-    - file (UploadFile): the uploaded file object
+    - file_paths (list[str]): list of absolute paths to files
     
     Returns:
-    - file_id (str): ID of the uploaded file
-    - name (str): name of the file
-    - size (int): size of the file in bytes
-    - content_type (str): MIME type of the file
+    - files (list[dict]): list of uploaded files
+        - ok (bool): True if uploaded successfully, False otherwise
+        - file_id (str | None): ID of the uploaded file
+        - name (str | None): name of the file
+        - size (int | None): size of the file in bytes
+        - content_type (str | None): MIME type of the file
+        - detail (str | None): error message (if any)
     
     Raises:
-    - 413: File too large (exceeds 100 MB limit)
-    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
-    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    try:
-        uploaded_file = await dsFile.upload(file)
-    except (DeepSeekError, DeepSeekResponseError, DeepSeekFileUploadError) as e:
-        raise HTTPException(status_code=502, detail=str(e))
-    except FileTooLargeError as e:
-        raise HTTPException(status_code=413, detail=str(e))
-    except DeepSeekFileContentEmpty as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except UnknownError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    uploaded_files = await Files.upload(request.file_paths)
     
-    return models.UploadedFileModel(
-        file_id=uploaded_file['file_id'],
-        name=file.filename,
-        size=file.size,
-        content_type=file.content_type
+    return models.UploadedFilesModel(
+        files=uploaded_files['files']
     )
 
 
@@ -380,7 +365,7 @@ async def generate(request: models.RequestMessageModel, stream: bool = False) ->
                 user=user, 
                 assistant=assistant
             )
-        except (DeepSeekError, DeepSeekResponseError) as e:
+        except (DeepSeekError, DeepSeekResponseError, DeepSeekSSEError) as e:
             raise HTTPException(status_code=502, detail=str(e))
         except UnknownError as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -389,54 +374,6 @@ async def generate(request: models.RequestMessageModel, stream: bool = False) ->
             Message.generate_stream(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
             media_type='text/event-stream'
         )
-
-
-
-@client.get('/api/model', tags=['Model'])
-async def get_model() -> models.DeepSeekModelModel:
-    '''
-    Returns the DeepSeek model.
-    
-    Returns:
-    - value (str): current DeepSeek model
-    
-    Raises:
-    - 422: validation errors (invalid input, wrong format)
-    '''
-    
-    return models.DeepSeekModelModel(
-        value=CONFIG.model
-    )
-
-
-
-@client.put('/api/model', tags=['Model'])
-async def set_model(request: models.DeepSeekModelModel) -> models.DeepSeekModelModel:
-    '''
-    Sets the DeepSeek model.
-    
-    Model change applies only to new chats (existing chats keep their original model).
-    
-    Model variants:
-    - DeepSeek-V4-Flash, 284B / 13B ("default"): instant responses for everyday tasks. Supports internet search, file uploads, and text recognition in images
-    - DeepSeek-V4-Pro, 1.6T / 49B ("expert"): deep reasoning for complex tasks. Uses a more powerful model with step‑by‑step logic. Does not support file uploads or multimodal features.
-    - DeepSeek-V4-Flash-Vision-Exp, 284B / 13B ("vision"): image recognition mode. Upload and analyze photos, screenshots, PDFs, and diagrams. Can describe scenes, extract text, and interpret structured data.
-    
-    Args:
-    - value (str): DeepSeek model variant
-    
-    Returns:
-    - value (str): updated DeepSeek model
-    
-    Raises:
-    - 422: validation errors (invalid input, wrong format)
-    '''
-    
-    CONFIG.model = request.value
-    
-    return models.DeepSeekModelModel(
-        value=CONFIG.model
-    )
 
 
 
@@ -455,7 +392,7 @@ async def get_search() -> models.EnabledModel:
     '''
     
     return models.EnabledModel(
-        enabled=CONFIG.search_enabled
+        enabled=settings.DEEPSEEK_SEARCH_ENABLED
     )
 
 
@@ -477,10 +414,10 @@ async def set_search(request: models.EnabledModel) -> models.EnabledModel:
     - 422: validation errors (invalid input, wrong format)
     '''
     
-    CONFIG.search_enabled = request.enabled
+    settings.DEEPSEEK_SEARCH_ENABLED = request.enabled
     
     return models.EnabledModel(
-        enabled=CONFIG.search_enabled
+        enabled=settings.DEEPSEEK_SEARCH_ENABLED
     )
 
 
@@ -500,7 +437,7 @@ async def get_thinking() -> models.EnabledModel:
     '''
     
     return models.EnabledModel(
-        enabled=CONFIG.thinking_enabled
+        enabled=settings.DEEPSEEK_THINKING_ENABLED
     )
 
 
@@ -522,10 +459,10 @@ async def set_thinking(request: models.EnabledModel) -> models.EnabledModel:
     - 422: validation errors (invalid input, wrong format)
     '''
     
-    CONFIG.thinking_enabled = request.enabled
+    settings.DEEPSEEK_THINKING_ENABLED = request.enabled
     
     return models.EnabledModel(
-        enabled=CONFIG.thinking_enabled
+        enabled=settings.DEEPSEEK_THINKING_ENABLED
     )
 
 
@@ -545,7 +482,7 @@ async def get_base_prompt_enabled() -> models.EnabledModel:
     '''
     
     return models.EnabledModel(
-        enabled=CONFIG.base_prompt_enabled
+        enabled=settings.BASE_PROMPT_ENABLED
     )
 
 
@@ -567,10 +504,10 @@ async def set_base_prompt_enabled(request: models.EnabledModel) -> models.Enable
     - 422: validation errors (invalid input, wrong format)
     '''
     
-    CONFIG.base_prompt_enabled = request.enabled
+    settings.BASE_PROMPT_ENABLED = request.enabled
     
     return models.EnabledModel(
-        enabled=CONFIG.base_prompt_enabled
+        enabled=settings.BASE_PROMPT_ENABLED
     )
 
 
@@ -590,7 +527,7 @@ async def get_base_prompt() -> models.ValueModel:
     '''
     
     return models.ValueModel(
-        value=CONFIG.base_prompt
+        value=settings.BASE_PROMPT
     )
 
 
@@ -612,10 +549,10 @@ async def set_base_prompt(request: models.ValueModel) -> models.ValueModel:
     - 422: validation errors (invalid input, wrong format)
     '''
     
-    CONFIG.base_prompt = request.value
+    settings.BASE_PROMPT = request.value
     
     return models.ValueModel(
-        value=CONFIG.base_prompt
+        value=settings.BASE_PROMPT
     )
 
 
@@ -633,7 +570,7 @@ async def get_token() -> models.ValueModel:
     '''
     
     return models.ValueModel(
-        value=CONFIG.token
+        value=settings.DEEPSEEK_TOKEN
     )
 
 
@@ -655,15 +592,16 @@ async def set_token(request: models.ValueModel) -> models.ValueModel:
     - 502: DeepSeek errors (invalid token or unexpected response format)
     '''
     
-    CONFIG.token = request.value
+    settings.update_token(request.value)
     
     try:
-        health = await DATA.check_health()
+        health_status = await check_health()
+        if not health_status.get('ok'): raise UnknownError(health_status.get('detail', 'Unknown API error'))
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
         raise HTTPException(status_code=500, detail=str(e))
     
     return models.ValueModel(
-        value=CONFIG.token
+        value=settings.DEEPSEEK_TOKEN
     )

@@ -4,7 +4,7 @@ import os, json, struct, base64
 from curl_cffi.requests import AsyncSession
 from wasmtime import Engine, Store, Module, Instance, Memory, Func
 
-from .data import DATA
+from . import settings
 from .utils import extract_from_response
 from .exceptions import APIError, UnknownError
 
@@ -81,9 +81,9 @@ class POWChallenge:
         try:
             async with AsyncSession() as session:
                 response = await session.post(
-                    f'{DATA.scheme}{DATA.authority}/api/v0/chat/create_pow_challenge', 
-                    headers=DATA.headers, 
-                    impersonate=DATA.impersonate, 
+                    f'{settings.DEEPSEEK_URL}/chat/create_pow_challenge', 
+                    headers=settings.HEADERS, 
+                    impersonate=settings.IMPERSONATE, 
                     json = {
                         'target_path': target_path
                     }

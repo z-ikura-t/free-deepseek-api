@@ -27,7 +27,6 @@ class HealthModel(BaseModel):
 class CHChatModel(ChatIDMixin):
     title: str = Field(min_length=1)
     updated_at: float
-    model_type: Literal['default', 'expert', 'vision']
 
 class ChatHistoryModel(BaseModel):
     chats: list[CHChatModel]
@@ -62,7 +61,6 @@ class ChatModel(ChatIDMixin):
     title: str | None = Field(min_length=1)
     inserted_at: float
     updated_at: float
-    model_type: Literal['default', 'expert', 'vision']
     current_message_id: int | None = Field(ge=0)
     messages: list[ChatResponseMessageModel]
 
@@ -103,11 +101,19 @@ class SplitMessageModel(BaseModel):
 
 
 
+class FilePathsModel(BaseModel):
+    file_paths: list[str] = Field(min_length=1)
+
 class UploadedFileModel(BaseModel):
-    file_id: str = Field(min_length=41, max_length=41)
-    name: str = Field(min_length=1)
-    size: int = Field(ge=1)
-    content_type: str = Field(min_length=1)
+    ok: bool
+    file_id: str | None = Field(min_length=41, max_length=41, default=None)
+    name: str | None = Field(min_length=1, default=None)
+    size: int | None = Field(ge=1, default=None)
+    content_type: str | None = Field(min_length=1, default=None)
+    detail: str | None = Field(min_length=1, default=None)
+
+class UploadedFilesModel(BaseModel):
+    files: list[UploadedFileModel]
 
 
 
@@ -116,8 +122,3 @@ class EnabledModel(BaseModel):
 
 class ValueModel(BaseModel):
     value: str = Field(min_length=1)
-
-
-
-class DeepSeekModelModel(BaseModel):
-    value: Literal['default', 'expert', 'vision']

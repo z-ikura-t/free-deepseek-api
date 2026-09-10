@@ -5,7 +5,7 @@
 
 Custom local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, file uploads, and image recognition using your DeepSeek account.
 
-This is not the official DeepSeek API and not a local model. It is a browser-based proxy: you authenticate in DeepSeek Chat, saves the session, and provides a local API for your tools.
+This is not the official DeepSeek API and not a local model. It is a browser-based proxy: you authenticate in DeepSeek Chat, save the session, and provides a local API for your tools.
 
 ## Requirements
 - Python 3.10+
@@ -64,28 +64,6 @@ Once the server is running, full interactive API documentation is available at:
 
 [http://127.0.0.1:4971/docs#](http://127.0.0.1:4971/docs#)
 
-## Models
-
-DeepSeek supports three model variants. You can switch models using the `/api/model` endpoint.
-
-| Model Name | Parameters (Total / Active) | API Value | Description |
-|------------|----------------------------|-----------|----------|
-| DeepSeek-V4-Flash | 284B / 13B | `default` | Fast responses for everyday tasks. Supports internet search, file uploads, and text recognition in images. |
-| DeepSeek-V4-Pro | 1.6T / 49B | `expert` | Deep reasoning for complex tasks. No internet search, file uploads, or multimodal features. |
-| DeepSeek-V4-Flash-Vision-Exp | 284B / 13B | `vision` | Multimodal model. Analyzes photos, screenshots, PDFs, and diagrams. No internet search. |
-
-**Important:**
-- Model changes apply only to new chats.
-
-Set model via API:
-```bash
-curl -X PUT 'http://127.0.0.1:4971/api/model' \
-  -H 'Content-Type: application/json' \
-  -d '{
-  "value": "model type"
-}'
-```
-
 ## API Endpoints
 
 ### Health
@@ -132,21 +110,24 @@ curl -X GET 'http://127.0.0.1:4971/api/chat/4a03e37a-bd78-4374-aa18-f1a4ba2cce43
 ### Upload File
 
 ```bash
-curl -X POST 'http://127.0.0.1:4971/api/file/upload' \
-  -F 'file=@/path/to/your/file.txt'
+curl -X POST 'http://127.0.0.1:4971/api/files/upload' \
+  -H 'Content-Type: application/json' \
+  -d '{"file_paths": ["/absolute/path/to/file.txt"]}'
 ```
 
-Replace `/path/to/your/file.txt` with the actual path to your file.
+Replace `/absolute/path/to/your/file.txt` with the actual absolute path to your file.
 
 **Example:**
 ```bash
-curl -X POST 'http://127.0.0.1:4971/api/file/upload' \
-  -F 'file=@image1.jpg'
+curl -X POST 'http://127.0.0.1:4971/api/files/upload' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "file_paths": [
+      "/path/to/your/document.pdf",
+      "/path/to/your/image.png"
+    ]
+  }'
 ```
-
-**Important:**
-- Upload files for `vision` model only when `vision` is already selected.
-- Files uploaded in `vision` model will not be recognized in `default` or `expert` models.
 
 ### Generate Message
 
@@ -248,9 +229,11 @@ async def get_chat(chat_id: str) -> list[dict]:
 
 async def get_last_chat_messages() -> None:
     chats = await get_chats(start=0, end=1)
-    if not chats.get('detail') is None: raise Exception(chats['detail'])
+    if not chats.get('detail') is None:
+        raise Exception(chats['detail'])
     chat = await get_chat(chats['chats'][0]['chat_id'])
-    if not chat.get('detail') is None: raise Exception(chat['detail'])
+    if not chat.get('detail') is None:
+        raise Exception(chat['detail'])
     print('Last chat messages: ')
     for message in chat['messages']:
         print('\n', '-' * 75, '\n')

@@ -1,7 +1,7 @@
 from loguru import logger
 from curl_cffi.requests import AsyncSession
 
-from .data import DATA
+from . import settings
 from .utils import extract_from_response
 from .exceptions import APIError, DeepSeekError, UnknownError
 
@@ -13,9 +13,9 @@ class Chat:
         try:
             async with AsyncSession() as session:
                 response = await session.post(
-                    f'{DATA.scheme}{DATA.authority}/api/v0/chat_session/create', 
-                    headers=DATA.headers, 
-                    impersonate=DATA.impersonate
+                    f'{settings.DEEPSEEK_URL}/chat_session/create', 
+                    headers=settings.HEADERS, 
+                    impersonate=settings.IMPERSONATE
                 )
                 
                 response = extract_from_response('Create Chat', response)
@@ -29,7 +29,6 @@ class Chat:
                 chat_id = chat_session['id']
                 inserted_at = chat_session['inserted_at']
                 updated_at = chat_session['updated_at']
-                model_type = chat_session['model_type']
                 
                 if not chat_id:
                     detail = 'Chat ID is empty'
@@ -43,7 +42,6 @@ class Chat:
                     'inserted_at': inserted_at, 
                     'updated_at': updated_at, 
                     'current_message_id': None, 
-                    'model_type': model_type, 
                     'messages': []
                 }
         except APIError: raise
@@ -58,9 +56,9 @@ class Chat:
         try:
             async with AsyncSession() as session:
                 response = await session.get(
-                    f'{DATA.scheme}{DATA.authority}/api/v0/chat/history_messages?chat_session_id={chat_id}', 
-                    headers=DATA.headers, 
-                    impersonate=DATA.impersonate
+                    f'{settings.DEEPSEEK_URL}/chat/history_messages?chat_session_id={chat_id}', 
+                    headers=settings.HEADERS, 
+                    impersonate=settings.IMPERSONATE
                 )
                 
                 response = extract_from_response('Get Chat', response)
@@ -75,7 +73,6 @@ class Chat:
                 inserted_at = chat_session['inserted_at']
                 updated_at = chat_session['updated_at']
                 current_message_id = chat_session['current_message_id']
-                model_type = chat_session['model_type']
                 messages = []
                 
                 chat_messages = response['data']['biz_data']['chat_messages']
@@ -111,7 +108,6 @@ class Chat:
                     'inserted_at': inserted_at, 
                     'updated_at': updated_at, 
                     'current_message_id': current_message_id, 
-                    'model_type': model_type, 
                     'messages': messages
                 }
         except APIError: raise
@@ -126,9 +122,9 @@ class Chat:
         try:
             async with AsyncSession() as session:
                 response = await session.post(
-                    f'{DATA.scheme}{DATA.authority}/api/v0/chat_session/update_title', 
-                    headers=DATA.headers, 
-                    impersonate=DATA.impersonate, 
+                    f'{settings.DEEPSEEK_URL}/chat_session/update_title', 
+                    headers=settings.HEADERS, 
+                    impersonate=settings.IMPERSONATE, 
                     json={
                         'chat_session_id': chat_id, 
                         'title': new_title

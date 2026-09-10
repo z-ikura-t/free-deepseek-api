@@ -4,7 +4,7 @@ from json import JSONDecodeError
 
 from curl_cffi.requests import AsyncSession
 
-from .data import DATA, CONFIG
+from . import settings
 from .pow_challenge import POWChallenge
 from .exceptions import APIError, DeepSeekResponseError, DeepSeekSSEError, UnknownError
 
@@ -19,7 +19,7 @@ class Message:
     
     @classmethod
     async def _solve_pow_challenge(cls) -> str:
-        x_ds_pow_response = await POWChallenge.solve('/api/v0/chat/completion')
+        x_ds_pow_response = await POWChallenge.solve(f'{settings.API}/chat/completion')
         return x_ds_pow_response['result']
     
     
@@ -27,21 +27,20 @@ class Message:
     async def _get_request_data(cls, chat_id: str, parent_message_id: int, prompt: str, file_ids: list[str] | None = None) -> tuple[dict, dict]:
         x_ds_pow_response_result = await cls._solve_pow_challenge()
         
-        headers = DATA.headers.copy()
+        headers = settings.HEADERS.copy()
         headers['x-ds-pow-response'] = x_ds_pow_response_result
         ref_file_ids = file_ids or []
         
-        if CONFIG.base_prompt_enabled: prompt = f'{CONFIG.base_prompt}\n{prompt}'       
+        if settings.BASE_PROMPT_ENABLED: prompt = f'{settings.BASE_PROMPT}\n{prompt}'       
         
         request_json = {
             'chat_session_id': chat_id, 
             'parent_message_id': parent_message_id, 
-            'model_type': CONFIG.model, 
             'preempt': False, 
             'prompt': prompt, 
             'ref_file_ids': ref_file_ids, 
-            'search_enabled': CONFIG.search_enabled if CONFIG.model == 'default' else False, 
-            'thinking_enabled': CONFIG.thinking_enabled
+            'search_enabled': settings.DEEPSEEK_SEARCH_ENABLED, 
+            'thinking_enabled': settings.DEEPSEEK_THINKING_ENABLED
         }
         
         return headers, request_json
@@ -121,8 +120,8 @@ class Message:
             
             async with AsyncSession() as session:
                 response = await session.post(
-                    f'{DATA.scheme}{DATA.authority}/api/v0/chat/completion', 
-                    impersonate=DATA.impersonate, 
+                    f'{settings.DEEPSEEK_URL}/chat/completion', 
+                    impersonate=settings.IMPERSONATE, 
                     headers=request_data[0], 
                     json=request_data[1], 
                     stream=False
@@ -196,8 +195,8 @@ class Message:
             
             async with AsyncSession() as session:
                 response = await session.post(
-                    f'{DATA.scheme}{DATA.authority}/api/v0/chat/completion', 
-                    impersonate=DATA.impersonate, 
+                    f'{settings.DEEPSEEK_URL}/chat/completion', 
+                    impersonate=settings.IMPERSONATE, 
                     headers=request_data[0], 
                     json=request_data[1], 
                     stream=True
