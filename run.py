@@ -7,8 +7,8 @@ from datetime import date, datetime
 
 import models
 
-from src.chat import Chat
 from src.file import Files
+from src.chat import Chat
 from src.message import Message
 from src.health import check_health
 from src.chat_history import ChatHistory
@@ -463,96 +463,6 @@ async def set_thinking(request: models.EnabledModel) -> models.EnabledModel:
     
     return models.EnabledModel(
         enabled=settings.DEEPSEEK_THINKING_ENABLED
-    )
-
-
-
-@client.get('/api/feature/base_prompt/enabled', tags=['Base Prompt'])
-async def get_base_prompt_enabled() -> models.EnabledModel:
-    '''
-    Returns whether the DeepSeek base prompt feature is enabled.
-    
-    Base prompt is automatically added to the beginning of each user message.
-    
-    Returns:
-    - enabled (bool): True if base prompt is enabled, False otherwise
-    
-    Raises:
-    - 422: validation errors (invalid input, wrong format)
-    '''
-    
-    return models.EnabledModel(
-        enabled=settings.BASE_PROMPT_ENABLED
-    )
-
-
-
-@client.put('/api/feature/base_prompt/enabled', tags=['Base Prompt'])
-async def set_base_prompt_enabled(request: models.EnabledModel) -> models.EnabledModel:
-    '''
-    Sets the DeepSeek base prompt feature state.
-    
-    Base prompt is automatically added to the beginning of each user message.
-    
-    Args:
-    - enabled (bool): True if base prompt is enabled, False otherwise
-    
-    Returns:
-    - enabled (bool): True if base prompt is enabled, False otherwise
-    
-    Raises:
-    - 422: validation errors (invalid input, wrong format)
-    '''
-    
-    settings.BASE_PROMPT_ENABLED = request.enabled
-    
-    return models.EnabledModel(
-        enabled=settings.BASE_PROMPT_ENABLED
-    )
-
-
-
-@client.get('/api/feature/base_prompt', tags=['Base Prompt'])
-async def get_base_prompt() -> models.ValueModel:
-    '''
-    Returns value of base prompt.
-    
-    Base prompt is automatically added to the beginning of each user message.
-    
-    Returns:
-    - value (str): current value of the base prompt
-    
-    Raises:
-    - 422: validation errors (invalid input, wrong format)
-    '''
-    
-    return models.ValueModel(
-        value=settings.BASE_PROMPT
-    )
-
-
-
-@client.put('/api/feature/base_prompt', tags=['Base Prompt'])
-async def set_base_prompt(request: models.ValueModel) -> models.ValueModel:
-    '''
-    Sets the base prompt value.
-    
-    Base prompt is automatically added to the beginning of each user message.
-    
-    Args:
-    - value (str): new value of the base prompt
-    
-    Returns:
-    - value (str): updated value of the base prompt
-    
-    Raises:
-    - 422: validation errors (invalid input, wrong format)
-    '''
-    
-    settings.BASE_PROMPT = request.value
-    
-    return models.ValueModel(
-        value=settings.BASE_PROMPT
     )
 
 

@@ -31,8 +31,6 @@ class Message:
         headers['x-ds-pow-response'] = x_ds_pow_response_result
         ref_file_ids = file_ids or []
         
-        if settings.BASE_PROMPT_ENABLED: prompt = f'{settings.BASE_PROMPT}\n{prompt}'       
-        
         request_json = {
             'chat_session_id': chat_id, 
             'parent_message_id': parent_message_id, 

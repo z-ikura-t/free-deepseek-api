@@ -3,9 +3,9 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-Chat-purple.svg)](https://chat.deepseek.com/)
 
-Custom local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, file uploads, and image recognition using your DeepSeek account.
+Local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, file uploads, and image recognition using your DeepSeek account.
 
-This is not the official DeepSeek API and not a local model. It is a browser-based proxy: you authenticate in DeepSeek Chat, save the session, and provides a local API for your tools.
+This is not the official DeepSeek API and not a local model. It is a browser-based proxy: you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
 
 ## Requirements
 - Python 3.10+
@@ -115,7 +115,7 @@ curl -X POST 'http://127.0.0.1:4971/api/files/upload' \
   -d '{"file_paths": ["/absolute/path/to/file.txt"]}'
 ```
 
-Replace `/absolute/path/to/your/file.txt` with the actual absolute path to your file.
+Replace `/absolute/path/to/file.txt` with the actual absolute path to your file.
 
 **Example:**
 ```bash
@@ -181,13 +181,11 @@ Manage features via API.
 ### Available settings
 - **Search** — enables internet search. Allows DeepSeek to retrieve real‑time information from the web.
 - **Thinking** — enables chain‑of‑thought reasoning. Improves accuracy on complex tasks.
-- **Base Prompt** — sets a system prompt that is automatically prepended to every user message.
 - **Token** — view or update your DeepSeek authentication token.
 
 **Enable/disable:**
 - Search
 - Thinking
-- Base Prompt
 
 **Example:**
 ```bash
@@ -196,15 +194,11 @@ curl -X PUT 'http://127.0.0.1:4971/api/feature/search/enabled' \
   -d '{"enabled": true}'
 ```
 
-**Set value:**
-- Base Prompt
-- Token
-
-**Example:**
+**Set token:**
 ```bash
-curl -X PUT 'http://127.0.0.1:4971/api/feature/base_prompt' \
+curl -X PUT 'http://127.0.0.1:4971/api/token' \
   -H 'Content-Type: application/json' \
-  -d '{"value": "Without Markdown: \n"}'
+  -d '{"value": "your_new_token"}'
 ```
 
 ## Usage example
