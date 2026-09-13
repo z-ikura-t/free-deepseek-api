@@ -24,7 +24,7 @@ class Message:
     
     
     @classmethod
-    async def _get_request_data(cls, chat_id: str, parent_message_id: int, prompt: str, file_ids: list[str] | None = None) -> tuple[dict, dict]:
+    async def _get_request_data(cls, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None) -> tuple[dict, dict]:
         x_ds_pow_response_result = await cls._solve_pow_challenge()
         
         headers = settings.HEADERS.copy()
@@ -112,7 +112,7 @@ class Message:
     
     
     @classmethod
-    async def generate_json(cls, chat_id: str, parent_message_id: int, prompt: str, file_ids: list[str] | None = None) -> dict:
+    async def completion(cls, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None) -> dict:
         try:
             request_data = await cls._get_request_data(chat_id, parent_message_id, prompt, file_ids=file_ids)
             
@@ -187,7 +187,7 @@ class Message:
     
     
     @classmethod
-    async def generate_stream(cls, chat_id: str, parent_message_id: int, prompt: str, file_ids: list[str] | None = None):
+    async def completion_stream(cls, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None):
         try:
             request_data = await cls._get_request_data(chat_id, parent_message_id, prompt, file_ids=file_ids)
             

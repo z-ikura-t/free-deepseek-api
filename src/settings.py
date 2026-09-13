@@ -1,5 +1,5 @@
 import os, random
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -19,20 +19,7 @@ HEADERS = {
     'Authorization': f'Bearer {DEEPSEEK_TOKEN}', 
     'Content-Type': 'application/json', 
     'x-client-platform': 'web', 
-    'x-client-version': '2.4.0'
+    'x-client-version': '2.5.0'
 }
 
 IMPERSONATE = random.choice(['chrome', 'safari', 'firefox'])
-
-
-
-def update_token(new_token: str) -> None:
-    global DEEPSEEK_TOKEN, HEADERS
-    set_key('.env', 'DEEPSEEK_TOKEN', new_token)
-    DEEPSEEK_TOKEN = new_token
-    HEADERS = {
-        'Authorization': f'Bearer {DEEPSEEK_TOKEN}', 
-        'Content-Type': 'application/json', 
-        'x-client-platform': 'web', 
-        'x-client-version': '2.4.0'
-    }

@@ -75,7 +75,7 @@ class ResponseNewChatTitleModel(ChatIDMixin):
 
 
 class RequestMessageModel(ChatIDMixin):
-    parent_message_id: int | None = Field(ge=1, default=None)
+    parent_message_id: int | None = Field(ge=2, default=None)
     prompt: str = Field(min_length=1)
     file_ids: list[str] = Field(min_length=41, max_length=41)
 

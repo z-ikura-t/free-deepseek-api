@@ -41,6 +41,8 @@ class Files:
                     
                     x_ds_pow_response = await POWChallenge.solve(f'{settings.API}/file/upload_file')
                     
+                    logger.info(f'[Upload Files] Uploading {path.name}...')
+                    
                     headers = settings.HEADERS.copy()
                     headers['x-ds-pow-response'] = x_ds_pow_response['result']
                     del headers['Content-Type']
@@ -64,8 +66,6 @@ class Files:
                     response = extract_from_response('Upload Files', response)
                     
                     file_id = response['data']['biz_data']['id']
-                    
-                    logger.info(f'[Upload Files] Uploading {path.name}...')
                     
                     attempts = 5
                     error_detail = None

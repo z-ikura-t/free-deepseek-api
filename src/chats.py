@@ -7,8 +7,8 @@ from .exceptions import APIError, ValidationError, UnknownError
 
 
 
-class ChatHistory:
-    _logs_tag = 'Chat History'
+class Chats:
+    _logs_tag = 'Chats'
     
     
     @classmethod
@@ -180,7 +180,7 @@ class ChatHistory:
     
     
     @classmethod
-    async def delete_chats(cls, chat_ids: list[str]) -> None:
+    async def delete(cls, chat_ids: list[str]) -> None:
         try:
             async with AsyncSession() as session:
                 response = await session.post(

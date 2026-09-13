@@ -5,7 +5,7 @@
 
 Local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, file uploads, and image recognition using your DeepSeek account.
 
-This is not the official DeepSeek API and not a local model. It is a browser-based proxy: you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
+This is not the official DeepSeek API and not a local model. It is a browser-based proxy (works with DeepSeek Chat web version **2.5**): you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
 
 ## Requirements
 - Python 3.10+
@@ -129,11 +129,11 @@ curl -X POST 'http://127.0.0.1:4971/api/files/upload' \
   }'
 ```
 
-### Generate Message
+### Chat Completions
 
 **Streaming mode:**
 ```bash
-curl -N -X POST 'http://127.0.0.1:4971/api/chat/generate?stream=true' \
+curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions?stream=true' \
   -H 'Content-Type: application/json' \
   -d '{
     "chat_id": "{chat_id}",
@@ -145,7 +145,7 @@ curl -N -X POST 'http://127.0.0.1:4971/api/chat/generate?stream=true' \
 
 **Non-streaming mode (returns complete JSON):**
 ```bash
-curl -X POST 'http://127.0.0.1:4971/api/chat/generate' \
+curl -X POST 'http://127.0.0.1:4971/api/chat/completions' \
   -H 'Content-Type: application/json' \
   -d '{
   "chat_id": "{chat_id}",
@@ -162,7 +162,7 @@ curl -X POST 'http://127.0.0.1:4971/api/chat/generate' \
 
 **Example (streaming):**
 ```bash
-curl -N -X POST 'http://127.0.0.1:4971/api/chat/generate?stream=true' \
+curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions?stream=true' \
   -H 'Content-Type: application/json' \
   -d '{
   "chat_id": "221bca6b-8eaa-456c-8ef5-a54f3237c96f",

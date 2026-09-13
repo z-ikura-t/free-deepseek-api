@@ -38,8 +38,11 @@ async def check_health() -> dict:
                     'user_id': None, 
                     'detail': detail
                 }
-    except (APIError, ValueError): raise
     except Exception as e:
         detail = str(e)
-        logger.exception(f'[Health] Unknown exception | Detail: {detail}')
-        raise UnknownError(detail) from e
+        if isinstance(e, UnknownError): logger.exception(f'[Health] Unknown exception | Detail: {detail}')
+        return {
+            'ok': False, 
+            'user_id': None, 
+            'detail': detail
+        }

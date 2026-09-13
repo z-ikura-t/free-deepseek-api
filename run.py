@@ -7,12 +7,13 @@ from datetime import date, datetime
 
 import models
 
-from src.file import Files
+from src.files import Files
 from src.chat import Chat
+from src.chats import Chats
 from src.message import Message
 from src.health import check_health
-from src.chat_history import ChatHistory
 
+from src import token
 from src import settings
 from src.exceptions import (
     ValidationError, 
@@ -50,17 +51,10 @@ async def health() -> models.HealthModel:
     - service (str): service name ("free-deepseek-api")
     
     Raises:
-    - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
     '''
     
-    try:
-        health_status = await check_health()
-    except (DeepSeekError, DeepSeekResponseError, UnknownError) as e:
-        return models.HealthModel(
-            ok=False, 
-            detail=str(e)
-        )
+    health_status = await check_health()
     
     return models.HealthModel(
         ok=health_status['ok'], 
@@ -71,7 +65,7 @@ async def health() -> models.HealthModel:
 
 
 @client.get('/api/chats', tags=['Chats'])
-async def get_chats(start: int | None = None, end: int | None = None, start_date: date | None = None, end_date: date | None = None) -> models.ChatHistoryModel:
+async def load_chats(start: int | None = None, end: int | None = None, start_date: date | None = None, end_date: date | None = None) -> models.ChatHistoryModel:
     '''
     Gets all chats and returns their parameters.
     
@@ -108,9 +102,9 @@ async def get_chats(start: int | None = None, end: int | None = None, start_date
         if start_date or end_date:
             if start_date: start_date = datetime.combine(start_date, datetime.min.time()).timestamp()
             if end_date: end_date = datetime.combine(end_date, datetime.min.time()).timestamp()
-            chat_history = await ChatHistory.load_timestamp(start_date, end_date)
+            chats = await Chats.load_timestamp(start_date, end_date)
         else:
-            chat_history = await ChatHistory.load_range(start, end)
+            chats = await Chats.load_range(start, end)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except (DeepSeekError, DeepSeekResponseError) as e:
@@ -119,7 +113,7 @@ async def get_chats(start: int | None = None, end: int | None = None, start_date
         raise HTTPException(status_code=500, detail=str(e))
     
     return models.ChatHistoryModel(
-        chats=chat_history['chats']
+        chats=chats['chats']
     )
 
 
@@ -139,7 +133,7 @@ async def delete_chats(request: models.DeleteChatsModel) -> None:
     '''
     
     try:
-        await ChatHistory.delete_chats(request.chat_ids)
+        await Chats.delete(request.chat_ids)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -185,7 +179,7 @@ async def create_new_chat() -> models.ChatModel:
 
 
 @client.get('/api/chat/{chat_id}', tags=['Chat'])
-async def get_chat(chat_id: str) -> models.ChatModel:
+async def load_chat(chat_id: str) -> models.ChatModel:
     '''
     Gets chat by ID and returns its parameters.
     
@@ -303,8 +297,8 @@ async def upload_files(request: models.FilePathsModel) -> models.UploadedFilesMo
 
 
 
-@client.post('/api/chat/generate', tags=['Messages'], status_code=status.HTTP_201_CREATED, response_model=None)
-async def generate(request: models.RequestMessageModel, stream: bool = False) -> models.SplitMessageModel | StreamingResponse:
+@client.post('/api/chat/completions', tags=['Messages'], status_code=status.HTTP_201_CREATED, response_model=None)
+async def completion(request: models.RequestMessageModel, stream: bool = False) -> models.SplitMessageModel | StreamingResponse:
     '''
     Create a new user message in the chat and generate an assistant response.
     
@@ -344,7 +338,7 @@ async def generate(request: models.RequestMessageModel, stream: bool = False) ->
     
     if not stream:
         try:
-            message = await Message.generate_json(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
+            message = await Message.completion(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
             
             user = models.UserMessageModel(
                 message_id=message['parent_message_id'],
@@ -371,7 +365,7 @@ async def generate(request: models.RequestMessageModel, stream: bool = False) ->
             raise HTTPException(status_code=500, detail=str(e))
     else:
         return StreamingResponse(
-            Message.generate_stream(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
+            Message.completion_stream(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
             media_type='text/event-stream'
         )
 
@@ -502,15 +496,10 @@ async def set_token(request: models.ValueModel) -> models.ValueModel:
     - 502: DeepSeek errors (invalid token or unexpected response format)
     '''
     
-    settings.update_token(request.value)
-    
     try:
-        health_status = await check_health()
-        if not health_status.get('ok'): raise UnknownError(health_status.get('detail', 'Unknown API error'))
-    except (DeepSeekError, DeepSeekResponseError) as e:
+        await token.update_token(request.value)
+    except DeepSeekError as e:
         raise HTTPException(status_code=502, detail=str(e))
-    except UnknownError as e:
-        raise HTTPException(status_code=500, detail=str(e))
     
     return models.ValueModel(
         value=settings.DEEPSEEK_TOKEN
