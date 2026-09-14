@@ -3,6 +3,7 @@ uvicorn==0.51.0
 curl_cffi==0.15.0
 fastapi==0.125.0
 pydantic==1.10.26
+websockets==17.1
 wasmtime==47.0.1
 python-dotenv==1.2.2
 seleniumbase==4.52.2

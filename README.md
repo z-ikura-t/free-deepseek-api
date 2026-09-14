@@ -7,6 +7,15 @@ Local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, fi
 
 This is not the official DeepSeek API and not a local model. It is a browser-based proxy (works with DeepSeek Chat web version **2.5**): you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
 
+## Overview
+- **Chats** — list, create, load, delete chats
+- **Messages** — send prompts, receive responses, stream via SSE
+- **Files** — upload files and attach to messages
+- **Vision** — analyze images via file uploads
+- **TTS** — generate text-to-speech audio for a specific message (Ogg Opus)
+- **Search** — enable internet search for real-time information
+- **Thinking** — enable chain-of-thought reasoning
+
 ## Requirements
 - Python 3.10+
 
@@ -68,18 +77,21 @@ Once the server is running, full interactive API documentation is available at:
 
 ### Health
 
+Check API health and DeepSeek token validity.
+
 ```bash
 curl -X GET 'http://127.0.0.1:4971/api/health'
 ```
 
 ### Get Chats
 
+List all chats with optional pagination or date filtering.
+
 ```bash
 curl -X GET 'http://127.0.0.1:4971/api/chats'
 ```
 
 **Examples:**
-
 ```bash
 # Pagination
 curl -X GET 'http://127.0.0.1:4971/api/chats?start=0&end=100'
@@ -88,13 +100,19 @@ curl -X GET 'http://127.0.0.1:4971/api/chats?start=0&end=100'
 curl -X GET 'http://127.0.0.1:4971/api/chats?start_date=2026-08-15&end_date=2026-08-30'
 ```
 
+> **Note:** if any date parameter is provided, `start` and `end` are ignored.
+
 ### Create chat
+
+Create a new empty chat.
 
 ```bash
 curl -X POST 'http://127.0.0.1:4971/api/chat/create'
 ```
 
 ### Get chat
+
+Load a chat with all its messages by ID.
 
 ```bash
 curl -X GET 'http://127.0.0.1:4971/api/chat/{chat_id}'
@@ -107,7 +125,9 @@ Replace `{chat_id}` with the actual chat ID.
 curl -X GET 'http://127.0.0.1:4971/api/chat/4a03e37a-bd78-4374-aa18-f1a4ba2cce43'
 ```
 
-### Upload File
+### Upload Files
+
+Upload one or more files to DeepSeek and get their file IDs.
 
 ```bash
 curl -X POST 'http://127.0.0.1:4971/api/files/upload' \
@@ -129,7 +149,12 @@ curl -X POST 'http://127.0.0.1:4971/api/files/upload' \
   }'
 ```
 
+**Important:**
+- File size limit: 100 MB per file.
+
 ### Chat Completions
+
+Send a user message and receive the assistant's response. Supports streaming for real-time output and file attachments, including images for vision-based analysis.
 
 **Streaming mode:**
 ```bash
@@ -155,10 +180,11 @@ curl -X POST 'http://127.0.0.1:4971/api/chat/completions' \
 }'
 ```
 
-- chat_id — the actual chat ID
-- parent_message_id — null for the first message, or the ID of the last message you want to reply to
-- prompt — your message text
-- file_ids — list of file IDs from **Upload File**
+**Replace:**
+- `{chat_id}` — the actual chat ID
+- `parent_message_id` — null for the first message, or the ID of the last message you want to reply to
+- `prompt` — your message text
+- `file_ids` — list of file IDs from **Upload File**
 
 **Example (streaming):**
 ```bash
@@ -174,9 +200,31 @@ curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions?stream=true' \
 }'
 ```
 
+## TTS
+
+Generate text-to-speech audio for the specified message. Returns **Ogg Opus** audio (`audio/ogg`) — play it directly or save it to a file.
+
+```bash
+curl -X GET 'http://127.0.0.1:4971/api/chat/{chat_id}/tts/{message_id}'
+```
+
+**Replace:**
+- `{chat_id}` — the actual chat ID
+- `{message_id}` — message ID to convert to speech
+
+**Example (save audio to a file):**
+```bash
+curl -X GET 'http://127.0.0.1:4971/api/chat/8da7a55b-81db-4b13-b5b2-cc25d77148b8/tts/6' \
+  -o audio1.opus
+```
+
+**Important:**
+- TTS voice is fixed (`mira`), no voice selection.
+- No streaming for TTS — the full audio is generated before returning.
+
 ## Settings
 
-Manage features via API.
+Manage global settings via API.
 
 ### Available settings
 - **Search** — enables internet search. Allows DeepSeek to retrieve real‑time information from the web.
@@ -211,36 +259,63 @@ from curl_cffi.requests import AsyncSession
 
 FREE_DEEPSEEK_API_URL = 'http://127.0.0.1:4971/api'
 
-async def get_chats(start: int = 0, end: int = 100) -> list[dict]:
+
+def get_error_detail(response) -> str:
+    try:
+        detail = response.json().get('detail', 'Unknown error')
+        if isinstance(detail, list):
+            return detail[0].get('msg', 'Unknown error') if detail else 'Unknown error'
+        if not isinstance(detail, str):
+            return 'Unknown error'
+        return detail
+    except Exception:
+        return response.text or 'Unknown error'
+
+
+async def create_chat() -> dict:
     async with AsyncSession() as session:
-        chats = await session.get(f'{FREE_DEEPSEEK_API_URL}/chats?start={start}&end={end}')
-        return chats.json()
+        response = await session.post(f'{FREE_DEEPSEEK_API_URL}/chat/create')
+        if response.status_code != 201:
+            detail = get_error_detail(response)
+            raise Exception(f'[{response.status_code}] {detail}')
+        return response.json()
 
-async def get_chat(chat_id: str) -> list[dict]:
+
+async def send_message(chat_id: str, parent_message_id: int | None, prompt: str) -> dict:
     async with AsyncSession() as session:
-        chat = await session.get(f'{FREE_DEEPSEEK_API_URL}/chat/{chat_id}')
-        return chat.json()
+        response = await session.post(
+            f'{FREE_DEEPSEEK_API_URL}/chat/completions',
+            json={
+                'chat_id': chat_id, 
+                'parent_message_id': parent_message_id, 
+                'prompt': prompt, 
+                'file_ids': []
+            },
+        )
+        if response.status_code != 201:
+            detail = get_error_detail(response)
+            raise Exception(f'[{response.status_code}] {detail}')
+        return response.json()
 
-async def get_last_chat_messages() -> None:
-    chats = await get_chats(start=0, end=1)
-    if not chats.get('detail') is None:
-        raise Exception(chats['detail'])
-    chat = await get_chat(chats['chats'][0]['chat_id'])
-    if not chat.get('detail') is None:
-        raise Exception(chat['detail'])
-    print('Last chat messages: ')
-    for message in chat['messages']:
-        print('\n', '-' * 75, '\n')
-        print(f'Role: {message["role"]}')
-        print(f'Content: \n{message["content"]}')
 
-asyncio.run(get_last_chat_messages())
+async def create_chat_and_send() -> None:
+    chat = await create_chat()
+    chat_id = chat['chat_id']
+    print(f'New chat created: {chat_id}')
+    
+    response = await send_message(chat_id, None, 'Hello! What can you do?')
+    
+    print('\nUser:', response['user']['content'])
+    print('\nAssistant:', response['assistant']['content'])
+
+
+asyncio.run(create_chat_and_send())
 ```
 
-This example:
-- Fetches the list of chats
-- Gets the last chat
-- Prints all messages from that chat with role and content
+**This example:**
+- Creates a new chat
+- Sends a message to it
+- Prints the user's message and the assistant's reply
 
 ## Limitations
 

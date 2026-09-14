@@ -4,9 +4,9 @@ import os, json, struct, base64
 from curl_cffi.requests import AsyncSession
 from wasmtime import Engine, Store, Module, Instance, Memory, Func
 
-from . import settings
-from .utils import extract_from_response
-from .exceptions import APIError, UnknownError
+from .. import settings
+from ..utils import extract_from_response
+from ..exceptions import APIError, UnknownError
 
 
 

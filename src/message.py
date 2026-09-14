@@ -5,7 +5,7 @@ from json import JSONDecodeError
 from curl_cffi.requests import AsyncSession
 
 from . import settings
-from .pow_challenge import POWChallenge
+from .pow_challenge.pow_challenge import POWChallenge
 from .exceptions import APIError, DeepSeekResponseError, DeepSeekSSEError, UnknownError
 
 

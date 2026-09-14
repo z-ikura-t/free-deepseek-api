@@ -8,14 +8,12 @@ from .exceptions import APIError, UnknownError
 
 
 
-async def check_health() -> dict:
+async def check_health(headers: dict | None = None) -> dict:
     try:
-        if not settings.DEEPSEEK_TOKEN: raise ValueError('DEEPSEEK_TOKEN not found in .env file or is empty')
-        
         async with AsyncSession() as session:
             response = await session.get(
                 f'{settings.DEEPSEEK_URL}/users/current', 
-                headers=settings.HEADERS, 
+                headers=settings.HEADERS if headers is None else headers, 
                 impersonate=settings.IMPERSONATE, 
                 timeout=10
             )

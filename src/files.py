@@ -8,7 +8,7 @@ from curl_cffi.requests import AsyncSession
 
 from . import settings
 from .utils import extract_from_response
-from .pow_challenge import POWChallenge
+from .pow_challenge.pow_challenge import POWChallenge
 
 
 
@@ -21,6 +21,7 @@ class Files:
         logger.error(f'[Upload Files] Not uploaded | Detail: {error_detail}')
         return {
             'ok': False, 
+            'file_id': None, 
             'detail': error_detail
         }
     

@@ -1,5 +1,5 @@
 from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Response, Path, status
 
 import sys, json, uuid
 from loguru import logger
@@ -10,11 +10,12 @@ import models
 from src.files import Files
 from src.chat import Chat
 from src.chats import Chats
+from src.tts.tts_client import TTS
 from src.message import Message
 from src.health import check_health
 
-from src import token
 from src import settings
+from src import credentials
 from src.exceptions import (
     ValidationError, 
     DeepSeekError, 
@@ -31,11 +32,7 @@ logger.remove()
 logger.add(sys.stderr, level='INFO')
 logger.add('logs/client.log', rotation='1 MB', level='INFO')
 
-
-
-@client.on_event('startup')
-async def init() -> None:
-    if not settings.DEEPSEEK_TOKEN: raise ValueError('DEEPSEEK_TOKEN not found in .env file or is empty')
+if not settings.DEEPSEEK_TOKEN: raise ValueError('DEEPSEEK_TOKEN not found in .env file or is empty')
 
 
 
@@ -179,7 +176,7 @@ async def create_new_chat() -> models.ChatModel:
 
 
 @client.get('/api/chat/{chat_id}', tags=['Chat'])
-async def load_chat(chat_id: str) -> models.ChatModel:
+async def load_chat(chat_id: uuid.UUID = Path()) -> models.ChatModel:
     '''
     Gets chat by ID and returns its parameters.
     
@@ -209,11 +206,8 @@ async def load_chat(chat_id: str) -> models.ChatModel:
     - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    try: uuid.UUID(chat_id)
-    except ValueError: raise HTTPException(status_code=422, detail='Invalid chat ID format. Must be a valid UUID.')
-    
     try:
-        chat = await Chat.load(chat_id)
+        chat = await Chat.load(str(chat_id))
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -231,7 +225,7 @@ async def load_chat(chat_id: str) -> models.ChatModel:
 
 
 @client.patch('/api/chat/{chat_id}/title', tags=['Chat'])
-async def update_chat_title(chat_id: str, request: models.RequestNewChatTitleModel) -> models.ResponseNewChatTitleModel:
+async def update_chat_title(request: models.RequestNewChatTitleModel, chat_id: uuid.UUID = Path()) -> models.ResponseNewChatTitleModel:
     '''
     Update the title of a chat by its ID.
     
@@ -249,11 +243,8 @@ async def update_chat_title(chat_id: str, request: models.RequestNewChatTitleMod
     - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    try: uuid.UUID(chat_id)
-    except ValueError: raise HTTPException(status_code=422, detail='Invalid chat ID format. Must be a valid UUID.')
-    
     try:
-        chat = await Chat.update_title(chat_id, request.title)
+        chat = await Chat.update_title(str(chat_id), request.title)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -368,6 +359,35 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
             Message.completion_stream(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
             media_type='text/event-stream'
         )
+
+
+
+@client.get('/api/chat/{chat_id}/tts/{message_id}', tags=['Messages'])
+async def tts(chat_id: uuid.UUID = Path(), message_id: int = Path(ge=1)) -> Response:
+    '''
+    Generate a text-to-speech (TTS) audio for the specified message.
+    
+    Args:
+    - chat_id (str): ID of the chat
+    - message_id (int): message ID to convert to speech
+    
+    Returns:
+    - Response: Ogg Opus audio (media type: audio/ogg)
+    
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
+    
+    try:
+        audio = await TTS.get_audio(str(chat_id), message_id)
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return Response(content=audio['audio_bytes'], media_type='audio/ogg')
 
 
 
@@ -497,7 +517,7 @@ async def set_token(request: models.ValueModel) -> models.ValueModel:
     '''
     
     try:
-        await token.update_token(request.value)
+        await credentials.update_token(request.value)
     except DeepSeekError as e:
         raise HTTPException(status_code=502, detail=str(e))
     
