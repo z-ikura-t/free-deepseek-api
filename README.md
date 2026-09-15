@@ -8,11 +8,11 @@ Local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, fi
 This is not the official DeepSeek API and not a local model. It is a browser-based proxy (works with DeepSeek Chat web version **2.5**): you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
 
 ## Overview
-- **Chats** — list, create, load, delete chats
+- **Chats** — list, create, load, rename, delete chats
 - **Messages** — send prompts, receive responses, stream via SSE
 - **Files** — upload files and attach to messages
 - **Vision** — analyze images via file uploads
-- **TTS** — generate text-to-speech audio for a specific message (Ogg Opus)
+- **TTS** — generate text-to-speech audio for a specific message (Ogg Opus), with voice selection
 - **Search** — enable internet search for real-time information
 - **Thinking** — enable chain-of-thought reasoning
 
@@ -102,6 +102,30 @@ curl -X GET 'http://127.0.0.1:4971/api/chats?start_date=2026-08-15&end_date=2026
 
 > **Note:** if any date parameter is provided, `start` and `end` are ignored.
 
+### Delete Chats
+
+Delete one or more chats by their IDs.
+
+```bash
+curl -X DELETE 'http://127.0.0.1:4971/api/chats' \
+  -H 'Content-Type: application/json' \
+  -d '{"chat_ids": ["chat-id-1", "chat-id-2"]}'
+```
+
+Replace `chat_ids` with the actual chat IDs.
+
+**Example:**
+```bash
+curl -X DELETE 'http://127.0.0.1:4971/api/chats' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_ids": [
+      "4a03e37a-bd78-4374-aa18-f1a4ba2cce43",
+      "221bca6b-8eaa-456c-8ef5-a54f3237c96f"
+    ]
+  }'
+```
+
 ### Create chat
 
 Create a new empty chat.
@@ -123,6 +147,27 @@ Replace `{chat_id}` with the actual chat ID.
 **Example:**
 ```bash
 curl -X GET 'http://127.0.0.1:4971/api/chat/4a03e37a-bd78-4374-aa18-f1a4ba2cce43'
+```
+
+### Update Chat Title
+
+Change the title of a chat by ID.
+
+```bash
+curl -X PATCH 'http://127.0.0.1:4971/api/chat/{chat_id}/title' \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "New chat title"}'
+```
+
+**Replace:**
+- `{chat_id}` — the actual chat ID
+- `title` — new title of the chat
+
+**Example:**
+```bash
+curl -X PATCH 'http://127.0.0.1:4971/api/chat/4a03e37a-bd78-4374-aa18-f1a4ba2cce43/title' \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Questions"}'
 ```
 
 ### Upload Files
@@ -173,7 +218,7 @@ curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions?stream=true' \
 curl -X POST 'http://127.0.0.1:4971/api/chat/completions' \
   -H 'Content-Type: application/json' \
   -d '{
-  "chat_id": "{chat_id}",
+  "chat_id": "chat_id",
   "parent_message_id": null,
   "prompt": "your message",
   "file_ids": []
@@ -181,10 +226,10 @@ curl -X POST 'http://127.0.0.1:4971/api/chat/completions' \
 ```
 
 **Replace:**
-- `{chat_id}` — the actual chat ID
+- `chat_id` — the actual chat ID
 - `parent_message_id` — null for the first message, or the ID of the last message you want to reply to
 - `prompt` — your message text
-- `file_ids` — list of file IDs from **Upload File**
+- `file_ids` — list of file IDs from **Upload Files**
 
 **Example (streaming):**
 ```bash
@@ -201,6 +246,8 @@ curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions?stream=true' \
 ```
 
 ## TTS
+
+### Generate Audio
 
 Generate text-to-speech audio for the specified message. Returns **Ogg Opus** audio (`audio/ogg`) — play it directly or save it to a file.
 
@@ -219,17 +266,44 @@ curl -X GET 'http://127.0.0.1:4971/api/chat/8da7a55b-81db-4b13-b5b2-cc25d77148b8
 ```
 
 **Important:**
-- TTS voice is fixed (`mira`), no voice selection.
+- Only assistant messages can be voiced.
 - No streaming for TTS — the full audio is generated before returning.
+
+### Get Voices
+
+Return all available TTS voices.
+
+```bash
+curl -X GET 'http://127.0.0.1:4971/api/tts/voices'
+```
+
+### Get Current Voice
+
+Return the currently selected TTS voice.
+
+```bash
+curl -X GET 'http://127.0.0.1:4971/api/tts/voice'
+```
+
+### Set Voice
+
+Change the current TTS voice.
+
+**Example:**
+```bash
+curl -X PUT 'http://127.0.0.1:4971/api/tts/voice' \
+  -H 'Content-Type: application/json' \
+  -d '{"voice_id": "echo"}'
+```
 
 ## Settings
 
 Manage global settings via API.
 
 ### Available settings
-- **Search** — enables internet search. Allows DeepSeek to retrieve real‑time information from the web.
-- **Thinking** — enables chain‑of‑thought reasoning. Improves accuracy on complex tasks.
-- **Token** — view or update your DeepSeek authentication token.
+- **Search** — enables internet search. Allows DeepSeek to retrieve real-time information from the web.
+- **Thinking** — enables chain-of-thought reasoning. Improves accuracy on complex tasks.
+- **Token** — shows or updates your DeepSeek authentication token.
 
 **Enable/disable:**
 - Search

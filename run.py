@@ -39,7 +39,7 @@ if not settings.DEEPSEEK_TOKEN: raise ValueError('DEEPSEEK_TOKEN not found in .e
 @client.get('/api/health', tags=['Health'])
 async def health() -> models.HealthModel:
     '''
-    Check the health status of the API and DeepSeek token validity.
+    Checks the health status of the API and DeepSeek token validity.
     
     Returns:
     - ok (bool): True if everything works, False if any error occurs
@@ -118,7 +118,7 @@ async def load_chats(start: int | None = None, end: int | None = None, start_dat
 @client.delete('/api/chats', tags=['Chats'], status_code=status.HTTP_204_NO_CONTENT)
 async def delete_chats(request: models.DeleteChatsModel) -> None:
     '''
-    Delete multiple chats by their IDs.
+    Deletes multiple chats by their IDs.
     
     Args:
     - chat_ids (list[str]): list of chat IDs to delete
@@ -227,7 +227,7 @@ async def load_chat(chat_id: uuid.UUID = Path()) -> models.ChatModel:
 @client.patch('/api/chat/{chat_id}/title', tags=['Chat'])
 async def update_chat_title(request: models.RequestNewChatTitleModel, chat_id: uuid.UUID = Path()) -> models.ResponseNewChatTitleModel:
     '''
-    Update the title of a chat by its ID.
+    Updates the title of a chat by its ID.
     
     Args:
     - chat_id (str): ID of the chat to update
@@ -260,7 +260,7 @@ async def update_chat_title(request: models.RequestNewChatTitleModel, chat_id: u
 @client.post('/api/files/upload', tags=['Files'], status_code=status.HTTP_201_CREATED)
 async def upload_files(request: models.FilePathsModel) -> models.UploadedFilesModel:
     '''
-    Upload one or more files to the DeepSeek server.
+    Uploads one or more files to the DeepSeek server.
     
     Maximum file size: 100 MB per file.
     
@@ -291,7 +291,7 @@ async def upload_files(request: models.FilePathsModel) -> models.UploadedFilesMo
 @client.post('/api/chat/completions', tags=['Messages'], status_code=status.HTTP_201_CREATED, response_model=None)
 async def completion(request: models.RequestMessageModel, stream: bool = False) -> models.SplitMessageModel | StreamingResponse:
     '''
-    Create a new user message in the chat and generate an assistant response.
+    Creates a new user message in the chat and generates an assistant response.
     
     Query params:
     - stream (bool): enable Server-Sent Events (SSE) streaming. If True, response is sent as a stream of events. Default is False.
@@ -362,10 +362,10 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
 
 
 
-@client.get('/api/chat/{chat_id}/tts/{message_id}', tags=['Messages'])
+@client.get('/api/chat/{chat_id}/tts/{message_id}', tags=['TTS'])
 async def tts(chat_id: uuid.UUID = Path(), message_id: int = Path(ge=1)) -> Response:
     '''
-    Generate a text-to-speech (TTS) audio for the specified message.
+    Generates text-to-speech (TTS) audio for the specified message.
     
     Args:
     - chat_id (str): ID of the chat
@@ -388,6 +388,95 @@ async def tts(chat_id: uuid.UUID = Path(), message_id: int = Path(ge=1)) -> Resp
         raise HTTPException(status_code=500, detail=str(e))
     
     return Response(content=audio['audio_bytes'], media_type='audio/ogg')
+
+
+
+@client.get('/api/tts/voices', tags=['TTS'])
+async def load_voices() -> models.ResponseVoicesModel:
+    '''
+    Returns a list of all TTS voices supported by DeepSeek.
+    
+    Returns:
+    - voices (list[dict]): list of available TTS voices
+        - voice_id (str): unique voice ID
+        - name (str): display name
+        - description (str): short description
+        - gender (str): "female" or "male"
+        - language_count (int): number of supported languages
+    
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
+    
+    try:
+        voices = await TTS.load_voices()
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return models.ResponseVoicesModel(
+        voices=voices['voices']
+    )
+
+
+
+@client.get('/api/tts/voice', tags=['TTS'])
+async def get_voice() -> models.VoiceModel:
+    '''
+    Gets the current TTS voice.
+    
+    Returns:
+    - voice_id (str): currently selected voice ID
+    
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
+    
+    try:
+        voices = await TTS.load_voices()
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return models.VoiceModel(
+        voice_id=voices['current_voice_id']
+    )
+
+
+
+@client.put('/api/tts/voice', tags=['TTS'])
+async def set_voice(request: models.VoiceModel) -> models.VoiceModel:
+    '''
+    Sets the current TTS voice.
+    
+    Args:
+    - voice_id (str): voice ID to set
+    
+    Returns:
+    - voice_id (str): currently selected voice ID
+    
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
+    
+    try:
+        new_voice_id = await TTS.set_voice(request.voice_id)
+    except (DeepSeekError, DeepSeekResponseError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return models.VoiceModel(
+        voice_id=new_voice_id['voice_id']
+    )
 
 
 

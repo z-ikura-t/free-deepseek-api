@@ -10,6 +10,8 @@ DEEPSEEK_TOKEN = os.getenv('DEEPSEEK_TOKEN')
 DEEPSEEK_SEARCH_ENABLED = False
 DEEPSEEK_THINKING_ENABLED = False
 
+DEEPSEEK_VOICE_ID = 'mira'
+
 SCHEME = 'https://'
 AUTHORITY = 'chat.deepseek.com'
 API = '/api/v0'
