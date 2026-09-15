@@ -97,15 +97,17 @@ class Message:
         sse_message_content = ''
         sse_message_data = {}
         if sse_message_event_type == cls._event_files_type:
-            sse_message_content = {
+            if stream: sse_message_content = {'type': 'file'}
+            else: sse_message_content = {}
+            sse_message_content.update({
                 'file_id': data['id'], 
                 'name': data['file_name'], 
                 'size': data['file_size']
-            }
+            })
             if stream: sse_message_content = json.dumps(sse_message_content)
         elif sse_message_event_type == cls._event_session_type:
             sse_message_content_type, sse_message_content, sse_message_data = cls._parse_sse_message(sse_message_content_type, sse_message)
-            if stream and sse_message_content: sse_message_content = json.dumps({'content': sse_message_content})
+            if stream and sse_message_content: sse_message_content = {'type': 'think' if sse_message_content_type == 'THINK' else 'response', 'content': sse_message_content}
         
         if stream: sse_message_content = f'data: {sse_message_content}\n\n' if sse_message_content else ''
         return sse_message_content_type, sse_message_content, sse_message_data
@@ -208,6 +210,7 @@ class Message:
                 logger.info(f'[{cls._logs_tag}] Event ready')
                 
                 event_type, content_type = '', ''
+                update_session = False
                 message_data = {
                     'message_id': None, 
                     'parent_message_id': None, 
@@ -224,13 +227,12 @@ class Message:
                             event_type = cls._event_files_type
                         elif line == 'event: update_session':
                             event_type = cls._event_session_type
+                            if not update_session:
+                                yield 'event: update_session\n'
+                                update_session = True
                         elif line == 'event: close': break
                     elif line.startswith('data: '):
                         new_content_type, fragment, new_message_data = cls._process_sse_message(event_type, content_type, line, stream=True)
-                        if new_content_type != content_type:
-                            if event_type == cls._event_session_type:
-                                yield 'event: update_session\n'
-                                yield f'data: {json.dumps({"type": new_content_type})}\n\n'
                         content_type = new_content_type
                         
                         if new_message_data: message_data = new_message_data
@@ -241,16 +243,20 @@ class Message:
                 if message_data.get('message_id') is None: raise DeepSeekResponseError('Message data not found')
                 
                 yield 'event: messages_data\n'
-                yield f'data: {json.dumps({
-                    "message_id": message_data['parent_message_id'],
-                    "parent_message_id": parent_message_id,
-                    "role": "USER"
-                })}\n\n'
-                yield f'data: {json.dumps({
-                    "message_id": message_data['message_id'],
-                    "parent_message_id": message_data['parent_message_id'],
-                    "role": "ASSISTANT"
-                })}\n\n'
+                user_message = {
+                    'type': 'message_data', 
+                    'message_id': message_data['parent_message_id'],
+                    'parent_message_id': parent_message_id,
+                    'role': 'USER'
+                }
+                yield f'data: {json.dumps(user_message)}\n\n'
+                assistant_message = {
+                    'type': 'message_data', 
+                    'message_id': message_data['message_id'],
+                    'parent_message_id': message_data['parent_message_id'],
+                    'role': 'ASSISTANT'
+                }
+                yield f'data: {json.dumps(assistant_message)}\n\n'
                 
                 yield 'event: close\n\n'
                 logger.info(f'[{cls._logs_tag}] Event close')
