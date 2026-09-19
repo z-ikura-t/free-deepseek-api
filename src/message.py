@@ -15,6 +15,10 @@ class Message:
     
     _event_files_type = 'FILES'
     _event_session_type = 'SESSION'
+    _event_message_data_type = 'MESSAGE_DATA'
+    
+    # _content_think_type = 'THINK'
+    _content_response_type = 'RESPONSE'
     
     
     @classmethod
@@ -91,26 +95,67 @@ class Message:
     
     
     @classmethod
-    def _process_sse_message(cls, sse_message_event_type: str, sse_message_content_type: str, sse_message: str, stream: bool = False) -> tuple[str, str, dict]:
+    def _process_sse_message(cls, sse_message_event_type: str, sse_message_content_type: str, sse_message: str) -> tuple[str, str, dict]:
         data = json.loads(sse_message[6:])
         
         sse_message_content = ''
         sse_message_data = {}
         if sse_message_event_type == cls._event_files_type:
-            if stream: sse_message_content = {'type': 'file'}
-            else: sse_message_content = {}
-            sse_message_content.update({
+            sse_message_content = {
                 'file_id': data['id'], 
                 'name': data['file_name'], 
                 'size': data['file_size']
-            })
-            if stream: sse_message_content = json.dumps(sse_message_content)
+            }
         elif sse_message_event_type == cls._event_session_type:
             sse_message_content_type, sse_message_content, sse_message_data = cls._parse_sse_message(sse_message_content_type, sse_message)
-            if stream and sse_message_content: sse_message_content = {'type': 'think' if sse_message_content_type == 'THINK' else 'response', 'content': sse_message_content}
         
-        if stream: sse_message_content = f'data: {sse_message_content}\n\n' if sse_message_content else ''
         return sse_message_content_type, sse_message_content, sse_message_data
+    
+    
+    @classmethod
+    async def _read_event_stream(cls, request_data: tuple):
+        async with AsyncSession() as session:
+            response = await session.post(
+                f'{settings.DEEPSEEK_URL}/chat/completion', 
+                impersonate=settings.IMPERSONATE, 
+                headers=request_data[0], 
+                json=request_data[1], 
+                stream=True
+            )
+            
+            lines = response.aiter_lines()
+            status = await anext(lines)
+            cls._check_sse_response_status(status.decode('utf-8'))
+            
+            event_type, content_type = '', ''
+            async for line in lines:
+                if not line: continue
+                line = line.decode('utf-8')
+                
+                if line.startswith('event: '):
+                    if line == 'event: update_file':
+                        event_type = cls._event_files_type
+                    elif line == 'event: update_session':
+                        event_type = cls._event_session_type
+                    elif line == 'event: close': break
+                elif line.startswith('data: '):
+                    new_content_type, fragment, new_message_data = cls._process_sse_message(event_type, content_type, line)
+                    content_type = new_content_type
+                    
+                    if new_message_data:
+                        if new_message_data.get('message_id') is None: raise DeepSeekResponseError('Message ID not found')
+                        
+                        yield {
+                            'event_type': cls._event_message_data_type, 
+                            'content': new_message_data
+                        }
+                    
+                    if fragment:
+                        yield {
+                            'event_type': event_type, 
+                            'content_type': content_type, 
+                            'content': fragment
+                        }
     
     
     @classmethod
@@ -118,69 +163,50 @@ class Message:
         try:
             request_data = await cls._get_request_data(chat_id, parent_message_id, prompt, file_ids=file_ids)
             
-            async with AsyncSession() as session:
-                response = await session.post(
-                    f'{settings.DEEPSEEK_URL}/chat/completion', 
-                    impersonate=settings.IMPERSONATE, 
-                    headers=request_data[0], 
-                    json=request_data[1], 
-                    stream=False
-                )
+            message_data = {}
+            files = []
+            think_text = []
+            response_text = []
+            async for chunk in cls._read_event_stream(request_data):
+                if chunk['event_type'] == cls._event_files_type:
+                    files.append(chunk['content'])
+                elif chunk['event_type'] == cls._event_message_data_type:
+                    message_data = {
+                        'message_id': chunk['content']['message_id'], 
+                        'parent_message_id': chunk['content']['parent_message_id'], 
+                        'role': chunk['content']['role']
+                    }
+                elif chunk['event_type'] == cls._event_session_type:
+                    if chunk['content_type'] == cls._content_response_type:
+                        response_text.append(chunk['content'])
+                    else:
+                        think_text.append(chunk['content'])
+            if message_data.get('message_id') is None: raise DeepSeekResponseError('Message ID not found')
             
-            if response.status_code == 200:
-                lines = response.text.split('\n')
-                if not lines: raise DeepSeekResponseError('Empty response')
-                
-                status = cls._check_sse_response_status(lines[0])
-                
-                i = 1
-                think, content, files = [], [], []
-                event_type, content_type = '', ''
-                message_data = {
-                    'message_id': None, 
-                    'parent_message_id': None, 
-                    'role': 'ASSISTANT'
-                }
-                while i < len(lines) and lines[i] != 'event: close':
-                    line = lines[i]
-                    if not line: i += 1; continue
-                    
-                    if line.startswith('event: '):
-                        if line == 'event: update_file':
-                            event_type = cls._event_files_type
-                        elif line == 'event: update_session':
-                            event_type = cls._event_session_type
-                    elif line.startswith('data: '):
-                        content_type, fragment, new_message_data = cls._process_sse_message(event_type, content_type, line, stream=False)
-                        if new_message_data: message_data = new_message_data
-                        if event_type == cls._event_files_type:
-                            files.append(fragment)
-                        elif event_type == cls._event_session_type:
-                            if not fragment: i += 1; continue
-                            if content_type == 'RESPONSE': content.append(fragment)
-                            else: think.append(fragment)
-                    i += 1
-                if not think: think = None
-                else: think = ''.join(think)
-                
-                if not content: raise DeepSeekResponseError('Empty response')
-                else: content = ''.join(content)
-                
-                if message_data.get('message_id') is None: raise DeepSeekResponseError('Message data not found')
-                
-                logger.info(f'[{cls._logs_tag}] Output: {content[:30]}...')
-                return {
+            if not think_text: think_text = None
+            else: think_text = ''.join(think_text)
+            
+            if not response_text: raise DeepSeekResponseError('Empty response')
+            else: response_text = ''.join(response_text)
+            
+            logger.info(f'[{cls._logs_tag}] Generated | Output: {response_text[:30]}...')
+            
+            return {
+                'user': {
+                    'message_id': message_data['parent_message_id'], 
+                    'parent_message_id': parent_message_id, 
+                    'role': 'USER', 
+                    'content': prompt, 
+                    'files': files
+                }, 
+                'assistant': {
                     'message_id': message_data['message_id'], 
                     'parent_message_id': message_data['parent_message_id'], 
                     'role': 'ASSISTANT', 
-                    'think': think, 
-                    'content': content, 
-                    'files': files
+                    'think': think_text, 
+                    'content': response_text, 
                 }
-            else:
-                detail = response.text[:100]
-                logger.error(f'[{cls._logs_tag}] Response exception | Detail: {detail}')
-                raise DeepSeekResponseError(detail)
+            }
         except APIError: raise
         except Exception as e:
             detail = str(e)
@@ -193,73 +219,52 @@ class Message:
         try:
             request_data = await cls._get_request_data(chat_id, parent_message_id, prompt, file_ids=file_ids)
             
-            async with AsyncSession() as session:
-                response = await session.post(
-                    f'{settings.DEEPSEEK_URL}/chat/completion', 
-                    impersonate=settings.IMPERSONATE, 
-                    headers=request_data[0], 
-                    json=request_data[1], 
-                    stream=True
-                )
-                
-                lines = response.aiter_lines()
-                status = await anext(lines)
-                status = cls._check_sse_response_status(status.decode('utf-8'))
-                
-                yield 'event: ready\n'
-                logger.info(f'[{cls._logs_tag}] Event ready')
-                
-                event_type, content_type = '', ''
-                update_session = False
-                message_data = {
-                    'message_id': None, 
-                    'parent_message_id': None, 
-                    'role': 'ASSISTANT'
-                }
-                async for line in lines:
-                    if not line: continue
-                    line = line.decode('utf-8')
+            yield 'event: ready\n'
+            logger.info(f'[{cls._logs_tag}] Event ready')
+            
+            current_type = None
+            async for chunk in cls._read_event_stream(request_data):
+                if chunk['event_type'] == cls._event_files_type:
+                    if current_type != chunk['event_type']:
+                        yield 'event: update_files\n'
+                        current_type = chunk['event_type']
                     
-                    if line.startswith('event: '):
-                        if line == 'event: update_file':
-                            if event_type != cls._event_files_type:
-                                yield 'event: update_files\n'
-                            event_type = cls._event_files_type
-                        elif line == 'event: update_session':
-                            event_type = cls._event_session_type
-                            if not update_session:
-                                yield 'event: update_session\n'
-                                update_session = True
-                        elif line == 'event: close': break
-                    elif line.startswith('data: '):
-                        new_content_type, fragment, new_message_data = cls._process_sse_message(event_type, content_type, line, stream=True)
-                        content_type = new_content_type
-                        
-                        if new_message_data: message_data = new_message_data
-                        
-                        if fragment:
-                            yield fragment
-                
-                if message_data.get('message_id') is None: raise DeepSeekResponseError('Message data not found')
-                
-                yield 'event: messages_data\n'
-                user_message = {
-                    'type': 'message_data', 
-                    'message_id': message_data['parent_message_id'],
-                    'parent_message_id': parent_message_id,
-                    'role': 'USER'
-                }
-                yield f'data: {json.dumps(user_message)}\n\n'
-                assistant_message = {
-                    'type': 'message_data', 
-                    'message_id': message_data['message_id'],
-                    'parent_message_id': message_data['parent_message_id'],
-                    'role': 'ASSISTANT'
-                }
-                yield f'data: {json.dumps(assistant_message)}\n\n'
-                
-                yield 'event: close\n\n'
-                logger.info(f'[{cls._logs_tag}] Event close')
+                    yield f'data: {json.dumps({
+                        'type': 'file', 
+                        **chunk['content']
+                    }, ensure_ascii=False)}\n\n'
+                elif chunk['event_type'] == cls._event_message_data_type:
+                    if current_type != chunk['event_type']:
+                        yield 'event: update_message_data\n'
+                        current_type = chunk['event_type']
+                    
+                    user_message = {
+                        'type': 'message_data', 
+                        'message_id': chunk['content']['parent_message_id'], 
+                        'parent_message_id': parent_message_id, 
+                        'role': 'USER'
+                    }
+                    yield f'data: {json.dumps(user_message)}\n\n'
+                    assistant_message = {
+                        'type': 'message_data', 
+                        'message_id': chunk['content']['message_id'], 
+                        'parent_message_id': chunk['content']['parent_message_id'], 
+                        'role': 'ASSISTANT'
+                    }
+                    yield f'data: {json.dumps(assistant_message)}\n\n'
+                elif chunk['event_type'] == cls._event_session_type:
+                    if current_type != chunk['event_type']:
+                        yield 'event: update_session\n'
+                        current_type = chunk['event_type']
+                    
+                    content_type = 'response' if chunk['content_type'] == cls._content_response_type else 'think'
+                    yield f'data: {json.dumps({
+                        'type': content_type, 
+                        'content': chunk['content']
+                    }, ensure_ascii=False)}\n\n'
+            
+            yield 'event: close\n\n'
+            logger.info(f'[{cls._logs_tag}] Event close')
         except Exception as e:
             detail = str(e)
             if isinstance(e, UnknownError): logger.exception(f'[{cls._logs_tag}] Unknown exception | Detail: {detail}')

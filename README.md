@@ -49,14 +49,14 @@ DEEPSEEK_TOKEN=your_token_here
 ```
 
 How to get the token manually:
-1. Open **DeepSeek Chat** in your browser
+1. Open **DeepSeek Chat** in your browser and log in
 2. Open **Developer Tools** (F12 or right-click > Inspect)
 3. Go to the **Network** tab
 4. Send a message in DeepSeek Chat
 5. Find the `completion` request in the **Network** tab
 6. Open the **Headers** section
-7. Find **Authorization** in **Request Headers**
-8. Copy the token after `Bearer`  (without the "Bearer " prefix)
+7. Find **Authorization** header under **Request Headers**
+8. Copy the token value after `Bearer`  (without the "Bearer " prefix)
 
 **Important:**
 - Do not share your token with anyone.
@@ -227,7 +227,7 @@ curl -X POST 'http://127.0.0.1:4971/api/chat/completions' \
 
 **Replace:**
 - `chat_id` — the actual chat ID
-- `parent_message_id` — null for the first message, or the ID of the last message you want to reply to
+- `parent_message_id` — null for the first message, or the ID of the previous assistant message
 - `prompt` — your message text
 - `file_ids` — list of file IDs from **Upload Files**
 

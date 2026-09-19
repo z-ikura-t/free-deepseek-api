@@ -89,10 +89,10 @@ class POWChallenge:
                     }
                 )
             
-            response = extract_from_response('POW challenge', response)
+            response = extract_from_response('PoW challenge', response)
             
             pow_challenge = response['data']['biz_data']['challenge']
-            logger.info(f'[POW challenge] Created | Target path: {target_path}')
+            logger.info(f'[PoW challenge] Created | Target path: {target_path}')
             
             algorithm = pow_challenge['algorithm']
             challenge = pow_challenge['challenge']
@@ -103,12 +103,12 @@ class POWChallenge:
             
             X_DS_POW_RESPONSE_b64 = await cls._solve_pow_challenge(challenge, salt, expire_at, difficulty, algorithm, signature, target_path)
             
-            logger.info(f'[POW challenge] Solved | Result: {X_DS_POW_RESPONSE_b64[:40]}...')
+            logger.info(f'[PoW challenge] Solved | Result: {X_DS_POW_RESPONSE_b64[:40]}...')
             return {
                 'result': X_DS_POW_RESPONSE_b64
             }
         except (APIError, FileNotFoundError): raise
         except Exception as e:
             detail = str(e)
-            logger.exception(f'[POW Challenge] Unknown exception | Detail: {detail}')
+            logger.exception(f'[PoW Challenge] Unknown exception | Detail: {detail}')
             raise UnknownError(detail) from e

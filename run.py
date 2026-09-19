@@ -303,6 +303,8 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
     - file_ids (list[str]): list of the uploaded file ids
     
     Returns:
+    
+    Complete JSON response (when stream=false):
     - user (dict): user message object
         - message_id (int): ID of the message
         - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
@@ -321,6 +323,24 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
         - content (str): text of the message
         - files (list[dict]): list of files attached to the message
     
+    Streaming (when stream=true): Server-Sent Events (text/event-stream). Each event is a "data:" line with a JSON object of type:
+    - file: attached file metadata.
+        - type (str): "file"
+        - file_id (str): ID of the uploaded file
+        - name (str): name of the file
+        - size (int): size of the file in bytes
+    - message_data: final message IDs (user and assistant).
+        - type (str): "message_data"
+        - message_id (int): ID of the message
+        - parent_message_id (int | None): ID of the parent message
+        - role (str): "USER" or "ASSISTANT"
+    - think: chunk of the model's internal reasoning (chain-of-thought).
+        - type (str): "think"
+        - content (str): reasoning text chunk
+    - response: chunk of the final answer text.
+        - type (str): "response"
+        - content (str): answer text chunk
+    
     Raises:
     - 422: validation errors (invalid input, wrong format)
     - 500: unexpected errors
@@ -332,18 +352,18 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
             message = await Message.completion(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
             
             user = models.UserMessageModel(
-                message_id=message['parent_message_id'],
-                parent_message_id=request.parent_message_id,
-                role='USER',
-                content=request.prompt, 
-                files=message['files']
+                message_id=message['user']['message_id'], 
+                parent_message_id=message['user']['parent_message_id'], 
+                role=message['user']['role'], 
+                content=message['user']['content'], 
+                files=message['user']['files']
             )
             assistant = models.AssistantMessageModel(
-                message_id=message['message_id'],
-                parent_message_id=message['parent_message_id'],
-                role='ASSISTANT',
-                think=message['think'],
-                content=message['content']
+                message_id=message['assistant']['message_id'], 
+                parent_message_id=message['assistant']['parent_message_id'], 
+                role=message['assistant']['role'], 
+                think=message['assistant']['think'], 
+                content=message['assistant']['content']
             )
             
             return models.SplitMessageModel(
