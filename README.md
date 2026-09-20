@@ -9,7 +9,7 @@ This is not the official DeepSeek API and not a local model. It is a browser-bas
 
 ## Overview
 - **Chats** — list, create, load, rename, delete chats
-- **Messages** — send prompts, receive responses, stream via SSE
+- **Messages** — send prompts, receive responses, regenerate, stream via SSE
 - **Files** — upload files and attach to messages
 - **Vision** — analyze images via file uploads
 - **TTS** — generate text-to-speech audio for a specific message (Ogg Opus), with voice selection
@@ -199,50 +199,136 @@ curl -X POST 'http://127.0.0.1:4971/api/files/upload' \
 
 ### Chat Completions
 
-Send a user message and receive the assistant's response. Supports streaming for real-time output and file attachments, including images for vision-based analysis.
+Send a user message and receive the assistant's response. Supports file attachments, including images for vision-based analysis.
 
-**Streaming mode:**
+#### Non-streaming
+
+Returns the complete JSON response.
+
 ```bash
-curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions?stream=true' \
+curl -X POST 'http://127.0.0.1:4971/api/chat/completions' \
   -H 'Content-Type: application/json' \
   -d '{
-    "chat_id": "{chat_id}",
+    "chat_id": "chat_id",
     "parent_message_id": null,
     "prompt": "your message",
     "file_ids": []
   }'
 ```
 
-**Non-streaming mode (returns complete JSON):**
+**Replace:**
+- `chat_id` — the actual chat ID
+- `parent_message_id` — `null` for the first message, or the ID of the previous assistant message
+- `prompt` — your message text
+- `file_ids` — list of file IDs from **Upload Files**
+
+**Example:**
 ```bash
 curl -X POST 'http://127.0.0.1:4971/api/chat/completions' \
   -H 'Content-Type: application/json' \
   -d '{
-  "chat_id": "chat_id",
-  "parent_message_id": null,
-  "prompt": "your message",
-  "file_ids": []
-}'
+    "chat_id": "221bca6b-8eaa-456c-8ef5-a54f3237c96f",
+    "parent_message_id": 6,
+    "prompt": "What does it say?",
+    "file_ids": [
+      "file-3fb90c05-52c5-481e-891b-8a130975794c"
+    ]
+  }'
+```
+
+#### Streaming
+
+Returns the response as Server-Sent Events for real-time output.
+
+```bash
+curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions/stream' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id": "chat_id",
+    "parent_message_id": null,
+    "prompt": "your message",
+    "file_ids": []
+  }'
 ```
 
 **Replace:**
 - `chat_id` — the actual chat ID
-- `parent_message_id` — null for the first message, or the ID of the previous assistant message
+- `parent_message_id` — `null` for the first message, or the ID of the previous assistant message
 - `prompt` — your message text
 - `file_ids` — list of file IDs from **Upload Files**
 
-**Example (streaming):**
+**Example:**
 ```bash
-curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions?stream=true' \
+curl -N -X POST 'http://127.0.0.1:4971/api/chat/completions/stream' \
   -H 'Content-Type: application/json' \
   -d '{
-  "chat_id": "221bca6b-8eaa-456c-8ef5-a54f3237c96f",
-  "parent_message_id": 6,
-  "prompt": "What does it say?",
-  "file_ids": [
-    "file-3fb90c05-52c5-481e-891b-8a130975794c"
-  ]
-}'
+    "chat_id": "221bca6b-8eaa-456c-8ef5-a54f3237c96f",
+    "parent_message_id": 6,
+    "prompt": "What does it say?",
+    "file_ids": [
+      "file-3fb90c05-52c5-481e-891b-8a130975794c"
+    ]
+  }'
+```
+
+### Regenerate
+
+Regenerate the assistant response for a specific message.
+
+> **Note:** A message can be regenerated only a limited number of times.
+
+#### Non-streaming
+
+Returns the complete JSON response.
+
+```bash
+curl -X POST 'http://127.0.0.1:4971/api/chat/regenerate' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id": "chat_id",
+    "message_id": 6
+  }'
+```
+
+**Replace:**
+- `chat_id` — the actual chat ID
+- `message_id` — ID of the **assistant** message to regenerate (must be >= 2)
+
+**Example:**
+```bash
+curl -X POST 'http://127.0.0.1:4971/api/chat/regenerate' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id": "221bca6b-8eaa-456c-8ef5-a54f3237c96f",
+    "message_id": 6
+  }'
+```
+
+#### Streaming
+
+Returns the response as Server-Sent Events (SSE) for real-time output.
+
+```bash
+curl -N -X POST 'http://127.0.0.1:4971/api/chat/regenerate/stream' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id": "chat_id",
+    "message_id": 6
+  }'
+```
+
+**Replace:**
+- `chat_id` — the actual chat ID
+- `message_id` — ID of the **assistant** message to regenerate (must be >= 2)
+
+**Example:**
+```bash
+curl -N -X POST 'http://127.0.0.1:4971/api/chat/regenerate/stream' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id": "221bca6b-8eaa-456c-8ef5-a54f3237c96f",
+    "message_id": 6
+  }'
 ```
 
 ## TTS

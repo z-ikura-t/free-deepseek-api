@@ -288,13 +288,10 @@ async def upload_files(request: models.FilePathsModel) -> models.UploadedFilesMo
 
 
 
-@client.post('/api/chat/completions', tags=['Messages'], status_code=status.HTTP_201_CREATED, response_model=None)
-async def completion(request: models.RequestMessageModel, stream: bool = False) -> models.SplitMessageModel | StreamingResponse:
+@client.post('/api/chat/completions', tags=['Messages'], status_code=status.HTTP_201_CREATED)
+async def completion(request: models.RequestMessageModel) -> models.SplitMessageModel:
     '''
     Creates a new user message in the chat and generates an assistant response.
-    
-    Query params:
-    - stream (bool): enable Server-Sent Events (SSE) streaming. If True, response is sent as a stream of events. Default is False.
     
     Args:
     - chat_id (str): ID of the chat
@@ -304,7 +301,7 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
     
     Returns:
     
-    Complete JSON response (when stream=false):
+    Complete JSON response:
     - user (dict): user message object
         - message_id (int): ID of the message
         - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
@@ -318,12 +315,60 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
     - assistant (dict): assistant message object
         - message_id (int): ID of the message
         - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
-        - role (str): "USER" for the user message
+        - role (str): "ASSISTANT" for the assistant message
         - think (str | None): the model's internal reasoning or chain‑of‑thought text
         - content (str): text of the message
         - files (list[dict]): list of files attached to the message
     
-    Streaming (when stream=true): Server-Sent Events (text/event-stream). Each event is a "data:" line with a JSON object of type:
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
+    
+    try:
+        message = await Message.completion(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
+        
+        user = models.UserMessageModel(
+            message_id=message['user']['message_id'], 
+            parent_message_id=message['user']['parent_message_id'], 
+            role=message['user']['role'], 
+            content=message['user']['content'], 
+            files=message['user']['files']
+        )
+        assistant = models.AssistantMessageModel(
+            message_id=message['assistant']['message_id'], 
+            parent_message_id=message['assistant']['parent_message_id'], 
+            role=message['assistant']['role'], 
+            think=message['assistant']['think'], 
+            content=message['assistant']['content']
+        )
+        
+        return models.SplitMessageModel(
+            user=user, 
+            assistant=assistant
+        )
+    except (DeepSeekError, DeepSeekResponseError, DeepSeekSSEError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@client.post('/api/chat/completions/stream', tags=['Messages'])
+async def completion_stream(request: models.RequestMessageModel) -> StreamingResponse:
+    '''
+    Creates a new user message in the chat and generates an assistant response.
+    
+    Args:
+    - chat_id (str): ID of the chat
+    - parent_message_id (int | None): ID of the parent message (None for the first message in a chat)
+    - prompt (str): text of the message
+    - file_ids (list[str]): list of the uploaded file ids
+    
+    Returns:
+    
+    Server-Sent Events (text/event-stream). Each event is a "data:" line with a JSON object of type:
     - file: attached file metadata.
         - type (str): "file"
         - file_id (str): ID of the uploaded file
@@ -340,6 +385,37 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
     - response: chunk of the final answer text.
         - type (str): "response"
         - content (str): answer text chunk
+    - error: error occurred during streaming.
+        - type (str): "error"
+        - error (str): error description
+    '''
+    
+    return StreamingResponse(
+        Message.completion_stream(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
+        media_type='text/event-stream'
+    )
+
+
+
+@client.post('/api/chat/regenerate', tags=['Messages'], status_code=status.HTTP_201_CREATED)
+async def regenerate(request: models.RequestRegenerateModel) -> models.AssistantMessageModel:
+    '''
+    Regenerates the assistant response for the specified message.
+    
+    A message can be regenerated a limited number of times.
+    
+    Args:
+    - chat_id (str): ID of the chat
+    - message_id (int): ID of the assistant message to regenerate (>= 2)
+    
+    Returns:
+    
+    Complete JSON response:
+    - message_id (int): ID of the new message
+    - parent_message_id (int | None): ID of the parent message
+    - role (str): "ASSISTANT"
+    - think (str | None): the model's internal reasoning (chain-of-thought)
+    - content (str): text of the message
     
     Raises:
     - 422: validation errors (invalid input, wrong format)
@@ -347,38 +423,57 @@ async def completion(request: models.RequestMessageModel, stream: bool = False) 
     - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    if not stream:
-        try:
-            message = await Message.completion(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
-            
-            user = models.UserMessageModel(
-                message_id=message['user']['message_id'], 
-                parent_message_id=message['user']['parent_message_id'], 
-                role=message['user']['role'], 
-                content=message['user']['content'], 
-                files=message['user']['files']
-            )
-            assistant = models.AssistantMessageModel(
-                message_id=message['assistant']['message_id'], 
-                parent_message_id=message['assistant']['parent_message_id'], 
-                role=message['assistant']['role'], 
-                think=message['assistant']['think'], 
-                content=message['assistant']['content']
-            )
-            
-            return models.SplitMessageModel(
-                user=user, 
-                assistant=assistant
-            )
-        except (DeepSeekError, DeepSeekResponseError, DeepSeekSSEError) as e:
-            raise HTTPException(status_code=502, detail=str(e))
-        except UnknownError as e:
-            raise HTTPException(status_code=500, detail=str(e))
-    else:
-        return StreamingResponse(
-            Message.completion_stream(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
-            media_type='text/event-stream'
-        )
+    try:
+        message = await Message.regenerate(request.chat_id, request.message_id)
+    except (DeepSeekError, DeepSeekResponseError, DeepSeekSSEError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except UnknownError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return models.AssistantMessageModel(
+        message_id=message['message_id'], 
+        parent_message_id=message['parent_message_id'], 
+        role=message['role'], 
+        think=message['think'], 
+        content=message['content']
+    )
+
+
+
+@client.post('/api/chat/regenerate/stream', tags=['Messages'])
+async def regenerate_stream(request: models.RequestRegenerateModel) -> StreamingResponse:
+    '''
+    Regenerates the assistant response for the specified message using streaming.
+    
+    A message can be regenerated a limited number of times.
+    
+    Args:
+    - chat_id (str): ID of the chat
+    - message_id (int): ID of the assistant message to regenerate (>= 2)
+    
+    Returns:
+    
+    Server-Sent Events (text/event-stream). Each event is a "data:" line with a JSON object of type:
+    - message_data: new message IDs (assistant).
+        - type (str): "message_data"
+        - message_id (int): ID of the new message
+        - parent_message_id (int | None): ID of the parent message
+        - role (str): "ASSISTANT"
+    - think: chunk of the model's internal reasoning (chain-of-thought).
+        - type (str): "think"
+        - content (str): reasoning text chunk
+    - response: chunk of the final answer text.
+        - type (str): "response"
+        - content (str): answer text chunk
+    - error: error occurred during streaming.
+        - type (str): "error"
+        - error (str): error description
+    '''
+    
+    return StreamingResponse(
+        Message.regenerate_stream(request.chat_id, request.message_id), 
+        media_type='text/event-stream'
+    )
 
 
 

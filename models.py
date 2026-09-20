@@ -81,6 +81,11 @@ class RequestMessageModel(ChatIDMixin):
 
 
 
+class RequestRegenerateModel(ChatIDMixin):
+    message_id: int = Field(ge=2)
+
+
+
 class UserMessageModel(BaseModel):
     message_id: int = Field(ge=1)
     parent_message_id: int | None = Field(ge=1, default=None)
