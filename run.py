@@ -1,9 +1,12 @@
 from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, HTTPException, Response, Path, status
+from fastapi import FastAPI, HTTPException, Request, Response, Path, status, Depends
 
 import sys, json, uuid
 from loguru import logger
 from datetime import date, datetime
+from contextlib import asynccontextmanager
+
+from curl_cffi.requests import AsyncSession
 
 import models
 
@@ -24,20 +27,32 @@ from src.exceptions import (
     UnknownError
 )
 
-
-
-client = FastAPI(title='Free DeepSeek API')
-
 logger.remove()
 logger.add(sys.stderr, level='INFO')
 logger.add('logs/client.log', rotation='1 MB', level='INFO')
 
-if not settings.DEEPSEEK_TOKEN: raise ValueError('DEEPSEEK_TOKEN not found in .env file or is empty')
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not settings.DEEPSEEK_TOKEN: raise ValueError('DEEPSEEK_TOKEN not found in .env file or is empty')
+    
+    app.state.ds_session = AsyncSession(
+        impersonate=settings.IMPERSONATE, 
+        timeout=30
+    )
+    try: yield
+    finally: await app.state.ds_session.close()
+
+client = FastAPI(title='Free DeepSeek API', lifespan=lifespan)
+
+def get_ds_session(request: Request) -> AsyncSession:
+    return request.app.state.ds_session
 
 
 
 @client.get('/api/health', tags=['Health'])
-async def health() -> models.HealthModel:
+async def health(ds_session: AsyncSession = Depends(get_ds_session)) -> models.HealthModel:
     '''
     Checks the health status of the API and DeepSeek token validity.
     
@@ -51,7 +66,7 @@ async def health() -> models.HealthModel:
     - 500: unexpected errors
     '''
     
-    health_status = await check_health()
+    health_status = await check_health(ds_session)
     
     return models.HealthModel(
         ok=health_status['ok'], 
@@ -62,7 +77,7 @@ async def health() -> models.HealthModel:
 
 
 @client.get('/api/chats', tags=['Chats'])
-async def load_chats(start: int | None = None, end: int | None = None, start_date: date | None = None, end_date: date | None = None) -> models.ChatHistoryModel:
+async def load_chats(start: int | None = None, end: int | None = None, start_date: date | None = None, end_date: date | None = None, ds_session: AsyncSession = Depends(get_ds_session)) -> models.ChatHistoryModel:
     '''
     Gets all chats and returns their parameters.
     
@@ -99,9 +114,9 @@ async def load_chats(start: int | None = None, end: int | None = None, start_dat
         if start_date or end_date:
             if start_date: start_date = datetime.combine(start_date, datetime.min.time()).timestamp()
             if end_date: end_date = datetime.combine(end_date, datetime.min.time()).timestamp()
-            chats = await Chats.load_timestamp(start_date, end_date)
+            chats = await Chats.load_timestamp(ds_session, start_date, end_date)
         else:
-            chats = await Chats.load_range(start, end)
+            chats = await Chats.load_range(ds_session, start, end)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except (DeepSeekError, DeepSeekResponseError) as e:
@@ -116,7 +131,7 @@ async def load_chats(start: int | None = None, end: int | None = None, start_dat
 
 
 @client.delete('/api/chats', tags=['Chats'], status_code=status.HTTP_204_NO_CONTENT)
-async def delete_chats(request: models.DeleteChatsModel) -> None:
+async def delete_chats(request: models.DeleteChatsModel, ds_session: AsyncSession = Depends(get_ds_session)) -> None:
     '''
     Deletes multiple chats by their IDs.
     
@@ -130,7 +145,7 @@ async def delete_chats(request: models.DeleteChatsModel) -> None:
     '''
     
     try:
-        await Chats.delete(request.chat_ids)
+        await Chats.delete(ds_session, request.chat_ids)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -139,7 +154,7 @@ async def delete_chats(request: models.DeleteChatsModel) -> None:
 
 
 @client.post('/api/chat/create', tags=['Chat'], status_code=status.HTTP_201_CREATED)
-async def create_new_chat() -> models.ChatModel:
+async def create_new_chat(ds_session: AsyncSession = Depends(get_ds_session)) -> models.ChatModel:
     '''
     Creates a chat and returns its parameters.
     
@@ -158,7 +173,7 @@ async def create_new_chat() -> models.ChatModel:
     '''
     
     try:
-        new_chat = await Chat.create()
+        new_chat = await Chat.create(ds_session)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -176,7 +191,7 @@ async def create_new_chat() -> models.ChatModel:
 
 
 @client.get('/api/chat/{chat_id}', tags=['Chat'])
-async def load_chat(chat_id: uuid.UUID = Path()) -> models.ChatModel:
+async def load_chat(chat_id: uuid.UUID = Path(), ds_session: AsyncSession = Depends(get_ds_session)) -> models.ChatModel:
     '''
     Gets chat by ID and returns its parameters.
     
@@ -207,7 +222,7 @@ async def load_chat(chat_id: uuid.UUID = Path()) -> models.ChatModel:
     '''
     
     try:
-        chat = await Chat.load(str(chat_id))
+        chat = await Chat.load(ds_session, str(chat_id))
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -225,7 +240,7 @@ async def load_chat(chat_id: uuid.UUID = Path()) -> models.ChatModel:
 
 
 @client.patch('/api/chat/{chat_id}/title', tags=['Chat'])
-async def update_chat_title(request: models.RequestNewChatTitleModel, chat_id: uuid.UUID = Path()) -> models.ResponseNewChatTitleModel:
+async def update_chat_title(request: models.RequestNewChatTitleModel, chat_id: uuid.UUID = Path(), ds_session: AsyncSession = Depends(get_ds_session)) -> models.ResponseNewChatTitleModel:
     '''
     Updates the title of a chat by its ID.
     
@@ -244,7 +259,7 @@ async def update_chat_title(request: models.RequestNewChatTitleModel, chat_id: u
     '''
     
     try:
-        chat = await Chat.update_title(str(chat_id), request.title)
+        chat = await Chat.update_title(ds_session, str(chat_id), request.title)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -258,7 +273,7 @@ async def update_chat_title(request: models.RequestNewChatTitleModel, chat_id: u
 
 
 @client.post('/api/files/upload', tags=['Files'], status_code=status.HTTP_201_CREATED)
-async def upload_files(request: models.FilePathsModel) -> models.UploadedFilesModel:
+async def upload_files(request: models.FilePathsModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.UploadedFilesModel:
     '''
     Uploads one or more files to the DeepSeek server.
     
@@ -280,7 +295,7 @@ async def upload_files(request: models.FilePathsModel) -> models.UploadedFilesMo
     - 500: unexpected errors
     '''
     
-    uploaded_files = await Files.upload(request.file_paths)
+    uploaded_files = await Files.upload(ds_session, request.file_paths)
     
     return models.UploadedFilesModel(
         files=uploaded_files['files']
@@ -289,7 +304,7 @@ async def upload_files(request: models.FilePathsModel) -> models.UploadedFilesMo
 
 
 @client.post('/api/chat/completions', tags=['Messages'], status_code=status.HTTP_201_CREATED)
-async def completion(request: models.RequestMessageModel) -> models.SplitMessageModel:
+async def completion(request: models.RequestMessageModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.SplitMessageModel:
     '''
     Creates a new user message in the chat and generates an assistant response.
     
@@ -327,7 +342,7 @@ async def completion(request: models.RequestMessageModel) -> models.SplitMessage
     '''
     
     try:
-        message = await Message.completion(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
+        message = await Message.completion(ds_session, request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids)
         
         user = models.UserMessageModel(
             message_id=message['user']['message_id'], 
@@ -356,7 +371,7 @@ async def completion(request: models.RequestMessageModel) -> models.SplitMessage
 
 
 @client.post('/api/chat/completions/stream', tags=['Messages'])
-async def completion_stream(request: models.RequestMessageModel) -> StreamingResponse:
+async def completion_stream(request: models.RequestMessageModel, ds_session: AsyncSession = Depends(get_ds_session)) -> StreamingResponse:
     '''
     Creates a new user message in the chat and generates an assistant response.
     
@@ -391,14 +406,14 @@ async def completion_stream(request: models.RequestMessageModel) -> StreamingRes
     '''
     
     return StreamingResponse(
-        Message.completion_stream(request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
+        Message.completion_stream(ds_session, request.chat_id, request.parent_message_id, request.prompt, file_ids=request.file_ids), 
         media_type='text/event-stream'
     )
 
 
 
 @client.post('/api/chat/regenerate', tags=['Messages'], status_code=status.HTTP_201_CREATED)
-async def regenerate(request: models.RequestRegenerateModel) -> models.AssistantMessageModel:
+async def regenerate(request: models.RequestRegenerateModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.AssistantMessageModel:
     '''
     Regenerates the assistant response for the specified message.
     
@@ -424,7 +439,7 @@ async def regenerate(request: models.RequestRegenerateModel) -> models.Assistant
     '''
     
     try:
-        message = await Message.regenerate(request.chat_id, request.message_id)
+        message = await Message.regenerate(ds_session, request.chat_id, request.message_id)
     except (DeepSeekError, DeepSeekResponseError, DeepSeekSSEError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -441,7 +456,7 @@ async def regenerate(request: models.RequestRegenerateModel) -> models.Assistant
 
 
 @client.post('/api/chat/regenerate/stream', tags=['Messages'])
-async def regenerate_stream(request: models.RequestRegenerateModel) -> StreamingResponse:
+async def regenerate_stream(request: models.RequestRegenerateModel, ds_session: AsyncSession = Depends(get_ds_session)) -> StreamingResponse:
     '''
     Regenerates the assistant response for the specified message using streaming.
     
@@ -471,14 +486,14 @@ async def regenerate_stream(request: models.RequestRegenerateModel) -> Streaming
     '''
     
     return StreamingResponse(
-        Message.regenerate_stream(request.chat_id, request.message_id), 
+        Message.regenerate_stream(ds_session, request.chat_id, request.message_id), 
         media_type='text/event-stream'
     )
 
 
 
 @client.get('/api/chat/{chat_id}/tts/{message_id}', tags=['TTS'])
-async def tts(chat_id: uuid.UUID = Path(), message_id: int = Path(ge=1)) -> Response:
+async def tts(chat_id: uuid.UUID = Path(), message_id: int = Path(ge=1), ds_session: AsyncSession = Depends(get_ds_session)) -> Response:
     '''
     Generates text-to-speech (TTS) audio for the specified message.
     
@@ -496,7 +511,7 @@ async def tts(chat_id: uuid.UUID = Path(), message_id: int = Path(ge=1)) -> Resp
     '''
     
     try:
-        audio = await TTS.get_audio(str(chat_id), message_id)
+        audio = await TTS.get_audio(ds_session, str(chat_id), message_id)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -507,7 +522,7 @@ async def tts(chat_id: uuid.UUID = Path(), message_id: int = Path(ge=1)) -> Resp
 
 
 @client.get('/api/tts/voices', tags=['TTS'])
-async def load_voices() -> models.ResponseVoicesModel:
+async def load_voices(ds_session: AsyncSession = Depends(get_ds_session)) -> models.ResponseVoicesModel:
     '''
     Returns a list of all TTS voices supported by DeepSeek.
     
@@ -526,7 +541,7 @@ async def load_voices() -> models.ResponseVoicesModel:
     '''
     
     try:
-        voices = await TTS.load_voices()
+        voices = await TTS.load_voices(ds_session)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -539,7 +554,7 @@ async def load_voices() -> models.ResponseVoicesModel:
 
 
 @client.get('/api/tts/voice', tags=['TTS'])
-async def get_voice() -> models.VoiceModel:
+async def get_voice(ds_session: AsyncSession = Depends(get_ds_session)) -> models.VoiceModel:
     '''
     Gets the current TTS voice.
     
@@ -553,7 +568,7 @@ async def get_voice() -> models.VoiceModel:
     '''
     
     try:
-        voices = await TTS.load_voices()
+        voices = await TTS.load_voices(ds_session)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -566,7 +581,7 @@ async def get_voice() -> models.VoiceModel:
 
 
 @client.put('/api/tts/voice', tags=['TTS'])
-async def set_voice(request: models.VoiceModel) -> models.VoiceModel:
+async def set_voice(request: models.VoiceModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.VoiceModel:
     '''
     Sets the current TTS voice.
     
@@ -583,7 +598,7 @@ async def set_voice(request: models.VoiceModel) -> models.VoiceModel:
     '''
     
     try:
-        new_voice_id = await TTS.set_voice(request.voice_id)
+        new_voice_id = await TTS.set_voice(ds_session, request.voice_id)
     except (DeepSeekError, DeepSeekResponseError) as e:
         raise HTTPException(status_code=502, detail=str(e))
     except UnknownError as e:
@@ -704,7 +719,7 @@ async def get_token() -> models.ValueModel:
 
 
 @client.put('/api/token', tags=['Token'])
-async def set_token(request: models.ValueModel) -> models.ValueModel:
+async def set_token(request: models.ValueModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.ValueModel:
     '''
     Sets the user's DeepSeek API token.
     
@@ -721,7 +736,7 @@ async def set_token(request: models.ValueModel) -> models.ValueModel:
     '''
     
     try:
-        await credentials.update_token(request.value)
+        await credentials.update_token(ds_session, request.value)
     except DeepSeekError as e:
         raise HTTPException(status_code=502, detail=str(e))
     

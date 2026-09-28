@@ -432,41 +432,40 @@ def get_error_detail(response) -> str:
         return response.text or 'Unknown error'
 
 
-async def create_chat() -> dict:
-    async with AsyncSession() as session:
-        response = await session.post(f'{FREE_DEEPSEEK_API_URL}/chat/create')
-        if response.status_code != 201:
-            detail = get_error_detail(response)
-            raise Exception(f'[{response.status_code}] {detail}')
-        return response.json()
+async def create_chat(session: AsyncSession) -> dict:
+    response = await session.post(f'{FREE_DEEPSEEK_API_URL}/chat/create')
+    if response.status_code != 201:
+        detail = get_error_detail(response)
+        raise Exception(f'[{response.status_code}] {detail}')
+    return response.json()
 
 
-async def send_message(chat_id: str, parent_message_id: int | None, prompt: str) -> dict:
-    async with AsyncSession() as session:
-        response = await session.post(
-            f'{FREE_DEEPSEEK_API_URL}/chat/completions',
-            json={
-                'chat_id': chat_id, 
-                'parent_message_id': parent_message_id, 
-                'prompt': prompt, 
-                'file_ids': []
-            },
-        )
-        if response.status_code != 201:
-            detail = get_error_detail(response)
-            raise Exception(f'[{response.status_code}] {detail}')
-        return response.json()
+async def send_message(session: AsyncSession, chat_id: str, parent_message_id: int | None, prompt: str) -> dict:
+    response = await session.post(
+        f'{FREE_DEEPSEEK_API_URL}/chat/completions',
+        json={
+            'chat_id': chat_id,
+            'parent_message_id': parent_message_id,
+            'prompt': prompt,
+            'file_ids': []
+        },
+    )
+    if response.status_code != 201:
+        detail = get_error_detail(response)
+        raise Exception(f'[{response.status_code}] {detail}')
+    return response.json()
 
 
 async def create_chat_and_send() -> None:
-    chat = await create_chat()
-    chat_id = chat['chat_id']
-    print(f'New chat created: {chat_id}')
-    
-    response = await send_message(chat_id, None, 'Hello! What can you do?')
-    
-    print('\nUser:', response['user']['content'])
-    print('\nAssistant:', response['assistant']['content'])
+    async with AsyncSession() as session:
+        chat = await create_chat(session)
+        chat_id = chat['chat_id']
+        print(f'New chat created: {chat_id}')
+        
+        response = await send_message(session, chat_id, None, 'Hello! What can you do?')
+        
+        print('\nUser:', response['user']['content'])
+        print('\nAssistant:', response['assistant']['content'])
 
 
 asyncio.run(create_chat_and_send())

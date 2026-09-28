@@ -5,7 +5,7 @@ from json import JSONDecodeError
 from curl_cffi.requests import AsyncSession
 
 from . import settings
-from .pow_challenge.pow_challenge import POWChallenge
+from .pow_challenge.pow_challenge import PoWChallenge
 from .exceptions import APIError, DeepSeekResponseError, DeepSeekSSEError, UnknownError
 
 
@@ -22,14 +22,14 @@ class Message:
     
     
     @classmethod
-    async def _solve_pow_challenge(cls) -> str:
-        x_ds_pow_response = await POWChallenge.solve(f'{settings.API}/chat/completion')
+    async def _solve_pow_challenge(cls, ds_session: AsyncSession) -> str:
+        x_ds_pow_response = await PoWChallenge.solve(ds_session, f'{settings.API}/chat/completion')
         return x_ds_pow_response['result']
     
     
     @classmethod
-    async def _get_headers(cls) -> dict:
-        x_ds_pow_response_result = await cls._solve_pow_challenge()
+    async def _get_headers(cls, ds_session: AsyncSession) -> dict:
+        x_ds_pow_response_result = await cls._solve_pow_challenge(ds_session)
         
         headers = settings.HEADERS.copy()
         headers['x-ds-pow-response'] = x_ds_pow_response_result
@@ -38,8 +38,8 @@ class Message:
     
     
     @classmethod
-    async def _get_request_data_completion(cls, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None) -> tuple[dict, dict]:
-        headers = await cls._get_headers()
+    async def _get_request_data_completion(cls, ds_session: AsyncSession, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None) -> tuple[dict, dict]:
+        headers = await cls._get_headers(ds_session)
         ref_file_ids = file_ids or []
         
         request_json = {
@@ -56,8 +56,8 @@ class Message:
     
     
     @classmethod
-    async def _get_request_data_regenerate(cls, chat_id: str, message_id: int) -> tuple[dict, dict]:
-        headers = await cls._get_headers()
+    async def _get_request_data_regenerate(cls, ds_session: AsyncSession, chat_id: str, message_id: int) -> tuple[dict, dict]:
+        headers = await cls._get_headers(ds_session)
         
         request_json = {
             'chat_session_id': chat_id, 
@@ -124,57 +124,55 @@ class Message:
     
     
     @classmethod
-    async def _read_event_stream(cls, request_data: tuple, operation: str):
-        async with AsyncSession() as session:
-            response = await session.post(
-                f'{settings.DEEPSEEK_URL}/chat/{operation}', 
-                impersonate=settings.IMPERSONATE, 
-                headers=request_data[0], 
-                json=request_data[1], 
-                stream=True
-            )
+    async def _read_event_stream(cls, ds_session: AsyncSession, request_data: tuple, operation: str):
+        response = await ds_session.post(
+            f'{settings.DEEPSEEK_URL}/chat/{operation}', 
+            headers=request_data[0], 
+            json=request_data[1], 
+            stream=True
+        )
+        
+        lines = response.aiter_lines()
+        status = await anext(lines)
+        cls._check_sse_response_status(status.decode('utf-8'))
+        
+        event_type, content_type = '', ''
+        async for line in lines:
+            if not line: continue
+            line = line.decode('utf-8')
             
-            lines = response.aiter_lines()
-            status = await anext(lines)
-            cls._check_sse_response_status(status.decode('utf-8'))
-            
-            event_type, content_type = '', ''
-            async for line in lines:
-                if not line: continue
-                line = line.decode('utf-8')
+            if line.startswith('event: '):
+                if line == 'event: update_file':
+                    event_type = cls._event_files_type
+                elif line == 'event: update_session':
+                    event_type = cls._event_session_type
+                elif line == 'event: close': break
+            elif line.startswith('data: '):
+                new_content_type, fragment, new_message_data = cls._parse_sse_message(event_type, content_type, line)
+                content_type = new_content_type
                 
-                if line.startswith('event: '):
-                    if line == 'event: update_file':
-                        event_type = cls._event_files_type
-                    elif line == 'event: update_session':
-                        event_type = cls._event_session_type
-                    elif line == 'event: close': break
-                elif line.startswith('data: '):
-                    new_content_type, fragment, new_message_data = cls._parse_sse_message(event_type, content_type, line)
-                    content_type = new_content_type
+                if new_message_data:
+                    if new_message_data.get('message_id') is None: raise DeepSeekResponseError('Message ID not found')
                     
-                    if new_message_data:
-                        if new_message_data.get('message_id') is None: raise DeepSeekResponseError('Message ID not found')
-                        
-                        yield {
-                            'event_type': cls._event_message_data_type, 
-                            'content': new_message_data
-                        }
-                    
-                    if fragment:
-                        yield {
-                            'event_type': event_type, 
-                            'content_type': content_type, 
-                            'content': fragment
-                        }
+                    yield {
+                        'event_type': cls._event_message_data_type, 
+                        'content': new_message_data
+                    }
+                
+                if fragment:
+                    yield {
+                        'event_type': event_type, 
+                        'content_type': content_type, 
+                        'content': fragment
+                    }
     
     
     @classmethod
-    async def _collect_json(cls, request_data: dict, operation: str) -> tuple[dict, list, list, list]:
+    async def _collect_json(cls, ds_session: AsyncSession, request_data: dict, operation: str) -> tuple[dict, list, list, list]:
         try:
             message_data, files, think_text, response_text = {}, [], [], []
             
-            async for chunk in cls._read_event_stream(request_data, operation):
+            async for chunk in cls._read_event_stream(ds_session, request_data, operation):
                 if chunk['event_type'] == cls._event_files_type:
                     files.append(chunk['content'])
                 elif chunk['event_type'] == cls._event_message_data_type:
@@ -205,13 +203,13 @@ class Message:
     
     
     @classmethod
-    async def _collect_stream(cls, request_data: dict, operation: str, parent_message_id: int | None):
+    async def _collect_stream(cls, ds_session: AsyncSession, request_data: dict, operation: str, parent_message_id: int | None):
         try:
             logger.info(f'[{cls._logs_tag}] Event ready')
             yield ('event', 'event: ready\n')
             
             current_type = None
-            async for chunk in cls._read_event_stream(request_data, operation):
+            async for chunk in cls._read_event_stream(ds_session, request_data, operation):
                 if chunk['event_type'] == cls._event_files_type:
                     if current_type != chunk['event_type']:
                         yield ('event', 'event: update_files\n')
@@ -263,10 +261,10 @@ class Message:
     
     
     @classmethod
-    async def completion(cls, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None) -> dict:
-        request_data = await cls._get_request_data_completion(chat_id, parent_message_id, prompt, file_ids=file_ids)
+    async def completion(cls, ds_session: AsyncSession, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None) -> dict:
+        request_data = await cls._get_request_data_completion(ds_session, chat_id, parent_message_id, prompt, file_ids=file_ids)
         
-        message_data, files, think_text, response_text = await cls._collect_json(request_data, 'completion')
+        message_data, files, think_text, response_text = await cls._collect_json(ds_session, request_data, 'completion')
         
         logger.info(f'[{cls._logs_tag}] Generated | Output: {response_text[:30]}...')
         
@@ -289,18 +287,18 @@ class Message:
     
     
     @classmethod
-    async def completion_stream(cls, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None):
-        request_data = await cls._get_request_data_completion(chat_id, parent_message_id, prompt, file_ids=file_ids)
+    async def completion_stream(cls, ds_session: AsyncSession, chat_id: str, parent_message_id: int | None, prompt: str, file_ids: list[str] | None = None):
+        request_data = await cls._get_request_data_completion(ds_session, chat_id, parent_message_id, prompt, file_ids=file_ids)
         
-        async for fragment_type, fragment_content in cls._collect_stream(request_data, 'completion', parent_message_id):
+        async for fragment_type, fragment_content in cls._collect_stream(ds_session, request_data, 'completion', parent_message_id):
             yield fragment_content
     
     
     @classmethod
-    async def regenerate(cls, chat_id: str, message_id: int) -> dict:
-        request_data = await cls._get_request_data_regenerate(chat_id, message_id)
+    async def regenerate(cls, ds_session: AsyncSession, chat_id: str, message_id: int) -> dict:
+        request_data = await cls._get_request_data_regenerate(ds_session, chat_id, message_id)
         
-        message_data, _, think_text, response_text = await cls._collect_json(request_data, 'regenerate')
+        message_data, _, think_text, response_text = await cls._collect_json(ds_session, request_data, 'regenerate')
         
         logger.info(f'[{cls._logs_tag}] Regenerated | Output: {response_text[:30]}...')
         
@@ -314,8 +312,8 @@ class Message:
     
     
     @classmethod
-    async def regenerate_stream(cls, chat_id: str, message_id: int):
-        request_data = await cls._get_request_data_regenerate(chat_id, message_id)
+    async def regenerate_stream(cls, ds_session: AsyncSession, chat_id: str, message_id: int):
+        request_data = await cls._get_request_data_regenerate(ds_session, chat_id, message_id)
         
-        async for fragment_type, fragment_content in cls._collect_stream(request_data, 'regenerate', parent_message_id=-1):
+        async for fragment_type, fragment_content in cls._collect_stream(ds_session, request_data, 'regenerate', parent_message_id=-1):
             yield fragment_content

@@ -16,15 +16,30 @@ def extract_from_response(logs_tag: str, response: Response) -> dict:
                 logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
                 raise DeepSeekResponseError(detail)
             
-            if response['code'] == 0:
-                if response['data']['biz_code'] != 0:
-                    detail = response['data']['biz_msg']
+            if response.get('code') == 0:
+                if response.get('data'):
+                    if response['data'].get('biz_code') != 0:
+                        if response['data'].get('biz_msg'):
+                            detail = response['data'].get('biz_msg')
+                            logger.error(f'[{logs_tag}] DeepSeek error | Detail: {detail}')
+                            raise DeepSeekError(detail)
+                        else:
+                             detail = 'Unknown response format'
+                             logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
+                             raise DeepSeekResponseError(detail)
+                else:
+                    detail = 'Unknown response format'
+                    logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
+                    raise DeepSeekResponseError(detail)
+            else:
+                if response.get('msg'):
+                    detail = response['msg']
                     logger.error(f'[{logs_tag}] DeepSeek error | Detail: {detail}')
                     raise DeepSeekError(detail)
-            else:
-                detail = response['msg']
-                logger.error(f'[{logs_tag}] DeepSeek error | Detail: {detail}')
-                raise DeepSeekError(detail)
+                else:
+                    detail = 'Unknown response format'
+                    logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
+                    raise DeepSeekResponseError(detail)
         else:
             detail = response.text[:100]
             logger.error(f'[{logs_tag}] Response error | Detail: {detail}')

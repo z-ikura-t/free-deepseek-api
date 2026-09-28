@@ -13,11 +13,11 @@ from ..exceptions import APIError, DeepSeekError, DeepSeekResponseError, Unknown
 
 class TTS:
     @classmethod
-    async def get_audio(cls, chat_id: str, message_id: int) -> dict:
+    async def get_audio(cls, ds_session: AsyncSession, chat_id: str, message_id: int) -> dict:
         try:
             opus_packets = []
             
-            ticket = await get_ticket('tts')
+            ticket = await get_ticket(ds_session, 'tts')
             ticket = ticket['ticket']
             
             tts_url = f'wss://{settings.AUTHORITY}{settings.API}/chat/tts/?chat_session_id={chat_id}&message_id={message_id}&ticket={ticket}&mode=manual&format=opus'
@@ -52,34 +52,32 @@ class TTS:
     
     
     @classmethod
-    async def load_voices(cls) -> dict:
+    async def load_voices(cls, ds_session: AsyncSession) -> dict:
         try:
-            async with AsyncSession() as session:
-                response = await session.get(
-                    f'{settings.DEEPSEEK_URL}/chat/tts/voices', 
-                    headers=settings.HEADERS, 
-                    impersonate=settings.IMPERSONATE
-                )
-                
-                response = extract_from_response('TTS Voices', response)
-                
-                available_voices = response['data']['biz_data']['voices']
-                current_voice_id = response['data']['biz_data']['current_voice_id']
-                voices = []
-                for available_voice in available_voices:
-                    voices.append({
-                        'voice_id': available_voice['voice_id'], 
-                        'name': available_voice['name_i18n']['en'], 
-                        'description': available_voice['description_i18n']['en'], 
-                        'gender': available_voice['gender'], 
-                        'language_count': len(available_voice['languages'])
-                    })
-                
-                logger.info(f'[TTS Voices] Received | Voice count: {len(voices)}')
-                return {
-                    'voices': voices, 
-                    'current_voice_id': current_voice_id
-                }
+            response = await ds_session.get(
+                f'{settings.DEEPSEEK_URL}/chat/tts/voices', 
+                headers=settings.HEADERS
+            )
+            
+            response = extract_from_response('TTS Voices', response)
+            
+            available_voices = response['data']['biz_data']['voices']
+            current_voice_id = response['data']['biz_data']['current_voice_id']
+            voices = []
+            for available_voice in available_voices:
+                voices.append({
+                    'voice_id': available_voice['voice_id'], 
+                    'name': available_voice['name_i18n']['en'], 
+                    'description': available_voice['description_i18n']['en'], 
+                    'gender': available_voice['gender'], 
+                    'language_count': len(available_voice['languages'])
+                })
+            
+            logger.info(f'[TTS Voices] Received | Voice count: {len(voices)}')
+            return {
+                'voices': voices, 
+                'current_voice_id': current_voice_id
+            }
         except APIError: raise
         except Exception as e:
             detail = str(e)
@@ -88,17 +86,15 @@ class TTS:
     
     
     @classmethod
-    async def set_voice(cls, new_voice_id: str) -> dict:
+    async def set_voice(cls, ds_session: AsyncSession, new_voice_id: str) -> dict:
         try:
-            async with AsyncSession() as session:
-                response = await session.post(
-                    f'{settings.DEEPSEEK_URL}/chat/tts/voice', 
-                    headers=settings.HEADERS, 
-                    impersonate=settings.IMPERSONATE, 
-                    json = {
-                        'voice_id': new_voice_id
-                    }
-                )
+            response = await ds_session.post(
+                f'{settings.DEEPSEEK_URL}/chat/tts/voice', 
+                headers=settings.HEADERS, 
+                json = {
+                    'voice_id': new_voice_id
+                }
+            )
             
             response = extract_from_response('TTS Voice', response)
             

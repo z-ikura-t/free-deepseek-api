@@ -12,15 +12,13 @@ class Chats:
     
     
     @classmethod
-    async def _get_chats(cls, updated_at: float | None = None) -> dict:
-        async with AsyncSession() as session:
-            response = await session.get(
-                f'{settings.DEEPSEEK_URL}/chat_session/fetch_page', 
-                headers=settings.HEADERS, 
-                params={} if updated_at is None else {'lte_cursor.pinned': False, 'lte_cursor.updated_at': updated_at}, 
-                impersonate=settings.IMPERSONATE, 
-                timeout=10
-            )
+    async def _load_chats(cls, ds_session: AsyncSession, updated_at: float | None = None) -> dict:
+        response = await ds_session.get(
+            f'{settings.DEEPSEEK_URL}/chat_session/fetch_page', 
+            headers=settings.HEADERS, 
+            params={} if updated_at is None else {'lte_cursor.pinned': False, 'lte_cursor.updated_at': updated_at}, 
+            timeout=10
+        )
         
         response = extract_from_response(cls._logs_tag, response)
         return response
@@ -57,19 +55,19 @@ class Chats:
     
     
     @classmethod
-    async def _process_response(cls, response: Response) -> dict | None:
+    async def _process_response(cls, ds_session: AsyncSession, response: Response) -> dict | None:
         has_more = cls._has_more_chats(response)
         if not has_more: return None
         
         updated_at = cls._get_updated_at(response)
         if updated_at is None: return None
         
-        response = await cls._get_chats(updated_at)
+        response = await cls._load_chats(ds_session, updated_at)
         return response
     
     
     @classmethod
-    async def load_range(cls, start: int | None = None, end: int | None = None) -> dict:
+    async def load_range(cls, ds_session: AsyncSession, start: int | None = None, end: int | None = None) -> dict:
         try:
             if start is None: start = 0
             if start < 0: raise ValidationError('Start index must be greater than or equal to 0')
@@ -79,7 +77,7 @@ class Chats:
             chats = {'chats': []}
             cursor_chats_count = 100
             
-            response = await cls._get_chats()
+            response = await cls._load_chats(ds_session)
             
             updated_at = cls._get_updated_at(response)
             if updated_at is None:
@@ -87,7 +85,7 @@ class Chats:
                 return chats
             
             for _ in range(start // cursor_chats_count):
-                response = await cls._process_response(response)
+                response = await cls._process_response(ds_session, response)
                 if response is None:
                     await cls._log_result(len(chats['chats']))
                     return chats
@@ -102,13 +100,13 @@ class Chats:
                 await cls._log_result(len(chats['chats']))
                 return chats
             
-            response = await cls._get_chats(updated_at)
+            response = await cls._load_chats(ds_session, updated_at)
             
             if not end is None:
                 chats_count = end - start
                 for _ in range(chats_count // cursor_chats_count):
                     chats = cls._add_chats(response['data']['biz_data']['chat_sessions'], chats)
-                    response = await cls._process_response(response)
+                    response = await cls._process_response(ds_session, response)
                     if response is None:
                         await cls._log_result(len(chats['chats']))
                         return chats
@@ -121,7 +119,7 @@ class Chats:
             else:
                 while True:
                     chats = cls._add_chats(response['data']['biz_data']['chat_sessions'], chats)
-                    response = await cls._process_response(response)
+                    response = await cls._process_response(ds_session, response)
                     if response is None:
                         await cls._log_result(len(chats['chats']))
                         return chats
@@ -136,14 +134,14 @@ class Chats:
     
     
     @classmethod
-    async def load_timestamp(cls, start_timestamp: float | None = None, end_timestamp: float | None = None) -> dict:
+    async def load_timestamp(cls, ds_session: AsyncSession, start_timestamp: float | None = None, end_timestamp: float | None = None) -> dict:
         try:
             if start_timestamp and end_timestamp and end_timestamp < start_timestamp: raise ValidationError('End timestamp must be greater than or equal to start timestamp')
             start_timestamp, end_timestamp = end_timestamp, start_timestamp
             
             chats = {'chats': []}
             
-            response = await cls._get_chats(start_timestamp if not start_timestamp is None else None)
+            response = await cls._load_chats(ds_session, start_timestamp if not start_timestamp is None else None)
             updated_at = cls._get_updated_at(response)
             if updated_at is None:
                 await cls._log_result(len(chats['chats']))
@@ -163,7 +161,7 @@ class Chats:
                     return chats
                 elif not end_timestamp is None and updated_at <= end_timestamp: break
                 
-                response = await cls._get_chats(updated_at)
+                response = await cls._load_chats(ds_session, updated_at)
             
             if not end_timestamp is None:
                 for i, chat_session in enumerate(response['data']['biz_data']['chat_sessions']):
@@ -180,17 +178,15 @@ class Chats:
     
     
     @classmethod
-    async def delete(cls, chat_ids: list[str]) -> None:
+    async def delete(cls, ds_session: AsyncSession, chat_ids: list[str]) -> None:
         try:
-            async with AsyncSession() as session:
-                response = await session.post(
-                    f'{settings.DEEPSEEK_URL}/chat_session/delete', 
-                    headers=settings.HEADERS, 
-                    impersonate=settings.IMPERSONATE, 
-                    json={
-                        'chat_session_ids': chat_ids
-                    }
-                )
+            response = await ds_session.post(
+                f'{settings.DEEPSEEK_URL}/chat_session/delete', 
+                headers=settings.HEADERS, 
+                json={
+                    'chat_session_ids': chat_ids
+                }
+            )
             
             response = extract_from_response('Delete Chats', response)
             

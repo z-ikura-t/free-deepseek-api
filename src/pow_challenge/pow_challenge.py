@@ -10,7 +10,7 @@ from ..exceptions import APIError, UnknownError
 
 
 
-class POWChallenge:
+class PoWChallenge:
     @classmethod
     def _encode_string(cls, store: Store, memory: Memory, malloc: Func, text: str) -> tuple[int, int]:
         bytes_data = text.encode('utf-8')
@@ -77,17 +77,15 @@ class POWChallenge:
     
     
     @classmethod
-    async def solve(cls, target_path: str) -> dict:
+    async def solve(cls, ds_session: AsyncSession, target_path: str) -> dict:
         try:
-            async with AsyncSession() as session:
-                response = await session.post(
-                    f'{settings.DEEPSEEK_URL}/chat/create_pow_challenge', 
-                    headers=settings.HEADERS, 
-                    impersonate=settings.IMPERSONATE, 
-                    json = {
-                        'target_path': target_path
-                    }
-                )
+            response = await ds_session.post(
+                f'{settings.DEEPSEEK_URL}/chat/create_pow_challenge', 
+                headers=settings.HEADERS, 
+                json = {
+                    'target_path': target_path
+                }
+            )
             
             response = extract_from_response('PoW challenge', response)
             

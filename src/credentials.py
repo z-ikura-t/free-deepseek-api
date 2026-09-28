@@ -22,11 +22,11 @@ def update_headers() -> None:
 
 
 _token_lock = asyncio.Lock()
-async def update_token(new_token: str) -> None:
+async def update_token(ds_session: AsyncSession, new_token: str) -> None:
     async with _token_lock:
         token = settings.DEEPSEEK_TOKEN
         
-        health_status = await check_health({
+        health_status = await check_health(ds_session, {
             'Authorization': f'Bearer {new_token}', 
             'Content-Type': 'application/json', 
             'x-client-platform': 'web', 
@@ -39,17 +39,15 @@ async def update_token(new_token: str) -> None:
 
 
 
-async def get_ticket(scope: str) -> dict:
+async def get_ticket(ds_session: AsyncSession, scope: str) -> dict:
     try:
-        async with AsyncSession() as session:
-            response = await session.post(
-                f'{settings.DEEPSEEK_URL}/auth/ticket', 
-                headers=settings.HEADERS, 
-                impersonate=settings.IMPERSONATE, 
-                json = {
-                    'scope': scope
-                }
-            )
+        response = await ds_session.post(
+            f'{settings.DEEPSEEK_URL}/auth/ticket', 
+            headers=settings.HEADERS, 
+            json = {
+                'scope': scope
+            }
+        )
         
         response = extract_from_response('Ticket', response)
         
