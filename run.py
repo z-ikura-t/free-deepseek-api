@@ -37,6 +37,8 @@ logger.add('logs/client.log', rotation='1 MB', level='INFO')
 async def lifespan(app: FastAPI):
     if not settings.DEEPSEEK_TOKEN: raise ValueError('DEEPSEEK_TOKEN not found in .env file or is empty')
     
+    credentials.update_headers()
+    
     app.state.ds_session = AsyncSession(
         impersonate=settings.IMPERSONATE, 
         timeout=30

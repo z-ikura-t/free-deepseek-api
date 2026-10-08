@@ -5,7 +5,7 @@
 
 Local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, file uploads, and image recognition using your DeepSeek account.
 
-This is not the official DeepSeek API and not a local model. It is a browser-based proxy (works with DeepSeek Chat web version **2.5**): you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
+This is not the official DeepSeek API and not a local model. It is a browser-based proxy (works with DeepSeek Chat web version **2.6**): you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
 
 ## Overview
 - **Chats** — list, create, load, rename, delete chats
