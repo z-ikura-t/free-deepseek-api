@@ -16,7 +16,7 @@ def update_headers() -> None:
         'Authorization': f'Bearer {settings.DEEPSEEK_TOKEN}', 
         'Content-Type': 'application/json', 
         'x-client-platform': 'web', 
-        'x-client-version': '2.6.0'
+        'x-client-version': '2.7.0'
     }
 
 
@@ -30,7 +30,7 @@ async def update_token(ds_session: AsyncSession, new_token: str) -> None:
             'Authorization': f'Bearer {new_token}', 
             'Content-Type': 'application/json', 
             'x-client-platform': 'web', 
-            'x-client-version': '2.6.0'
+            'x-client-version': '2.7.0'
         })
         if not health_status.get('ok'): raise DeepSeekError(health_status.get('detail', 'Unknown DeepSeek error'))
         

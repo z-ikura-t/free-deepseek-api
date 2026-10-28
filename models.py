@@ -1,11 +1,17 @@
 import uuid
 
 from typing import Literal
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ConfigDict
 
 
 
-class ChatIDMixin(BaseModel):
+class FrozenModel(BaseModel):
+    class Config:
+        frozen = True
+
+
+
+class ChatIDMixin(FrozenModel):
     chat_id: str = Field(min_length=36, max_length=36)
     
     @validator('chat_id')
@@ -16,7 +22,7 @@ class ChatIDMixin(BaseModel):
 
 
 
-class HealthModel(BaseModel):
+class HealthModel(FrozenModel):
     ok: bool
     user_id: str | None = Field(min_length=1)
     detail: str | None = Field(min_length=1)
@@ -28,12 +34,12 @@ class CHChatModel(ChatIDMixin):
     title: str = Field(min_length=1)
     updated_at: float
 
-class ChatHistoryModel(BaseModel):
+class ChatHistoryModel(FrozenModel):
     chats: list[CHChatModel]
 
 
 
-class DeleteChatsModel(BaseModel):
+class DeleteChatsModel(FrozenModel):
     chat_ids: list[str] = Field(min_length=36, max_length=36)
     
     @validator('chat_ids', each_item=True)
@@ -44,12 +50,12 @@ class DeleteChatsModel(BaseModel):
 
 
 
-class ChatFileModel(BaseModel):
+class ChatFileModel(FrozenModel):
     file_id: str = Field(min_length=41, max_length=41)
     name: str = Field(min_length=1)
     size: int = Field(ge=1)
 
-class ChatResponseMessageModel(BaseModel):
+class ChatResponseMessageModel(FrozenModel):
     message_id: int = Field(ge=1)
     parent_message_id: int | None = Field(ge=1, default=None)
     role: Literal['USER', 'ASSISTANT']
@@ -66,7 +72,7 @@ class ChatModel(ChatIDMixin):
 
 
 
-class RequestNewChatTitleModel(BaseModel):
+class RequestNewChatTitleModel(FrozenModel):
     title: str = Field(min_length=1)
 
 class ResponseNewChatTitleModel(ChatIDMixin):
@@ -86,30 +92,30 @@ class RequestRegenerateModel(ChatIDMixin):
 
 
 
-class UserMessageModel(BaseModel):
+class UserMessageModel(FrozenModel):
     message_id: int = Field(ge=1)
     parent_message_id: int | None = Field(ge=1, default=None)
     role: Literal['USER', 'ASSISTANT']
     content: str = Field(min_length=1)
     files: list[ChatFileModel]
 
-class AssistantMessageModel(BaseModel):
+class AssistantMessageModel(FrozenModel):
     message_id: int = Field(ge=1)
     parent_message_id: int | None = Field(ge=1, default=None)
     role: Literal['USER', 'ASSISTANT']
     think: str | None = Field(min_length=1)
     content: str = Field(min_length=1)
 
-class SplitMessageModel(BaseModel):
+class SplitMessageModel(FrozenModel):
     user: UserMessageModel
     assistant: AssistantMessageModel
 
 
 
-class FilePathsModel(BaseModel):
+class FilePathsModel(FrozenModel):
     file_paths: list[str] = Field(min_length=1)
 
-class UploadedFileModel(BaseModel):
+class UploadedFileModel(FrozenModel):
     ok: bool
     file_id: str | None = Field(min_length=41, max_length=41, default=None)
     name: str | None = Field(min_length=1, default=None)
@@ -117,28 +123,28 @@ class UploadedFileModel(BaseModel):
     content_type: str | None = Field(min_length=1, default=None)
     detail: str | None = Field(min_length=1, default=None)
 
-class UploadedFilesModel(BaseModel):
+class UploadedFilesModel(FrozenModel):
     files: list[UploadedFileModel]
 
 
 
-class ResponseVoiceModel(BaseModel):
+class ResponseVoiceModel(FrozenModel):
     voice_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     description: str = Field(min_length=1)
     gender: Literal['female', 'male']
     language_count: int = Field(ge=0)
 
-class ResponseVoicesModel(BaseModel):
+class ResponseVoicesModel(FrozenModel):
     voices: list[ResponseVoiceModel]
 
-class VoiceModel(BaseModel):
+class VoiceModel(FrozenModel):
     voice_id: str = Field(min_length=1)
 
 
 
-class EnabledModel(BaseModel):
+class EnabledModel(FrozenModel):
     enabled: bool
 
-class ValueModel(BaseModel):
+class ValueModel(FrozenModel):
     value: str = Field(min_length=1)

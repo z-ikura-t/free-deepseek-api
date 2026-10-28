@@ -5,7 +5,7 @@
 
 Local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, file uploads, and image recognition using your DeepSeek account.
 
-This is not the official DeepSeek API and not a local model. It is a browser-based proxy (works with DeepSeek Chat web version **2.6**): you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
+This is not the official DeepSeek API and not a local model. It is a browser-based proxy (works with DeepSeek Chat web version **2.7**): you authenticate in DeepSeek Chat, save the session, and provide a local API for your tools.
 
 ## Overview
 - **Chats** — list, create, load, rename, delete chats
@@ -338,7 +338,7 @@ curl -N -X POST 'http://127.0.0.1:4971/api/chat/regenerate/stream' \
 Generate text-to-speech audio for the specified message. Returns **Ogg Opus** audio (`audio/ogg`) — play it directly or save it to a file.
 
 ```bash
-curl -X GET 'http://127.0.0.1:4971/api/chat/{chat_id}/tts/{message_id}'
+curl -X GET 'http://127.0.0.1:4971/api/tts/{message_id}/chat/{chat_id}'
 ```
 
 **Replace:**
@@ -347,7 +347,7 @@ curl -X GET 'http://127.0.0.1:4971/api/chat/{chat_id}/tts/{message_id}'
 
 **Example (save audio to a file):**
 ```bash
-curl -X GET 'http://127.0.0.1:4971/api/chat/8da7a55b-81db-4b13-b5b2-cc25d77148b8/tts/6' \
+curl -X GET 'http://127.0.0.1:4971/api/tts/6/chat/8da7a55b-81db-4b13-b5b2-cc25d77148b8' \
   -o audio1.opus
 ```
 
