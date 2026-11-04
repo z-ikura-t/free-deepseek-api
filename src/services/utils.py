@@ -1,4 +1,6 @@
 from loguru import logger
+from functools import wraps
+from typing import Callable, Any
 from json import JSONDecodeError
 
 from curl_cffi.requests import Response
@@ -7,13 +9,13 @@ from .exceptions import APIError, DeepSeekError, DeepSeekResponseError, UnknownE
 
 
 
-def extract_from_response(logs_tag: str, response: Response) -> dict:
+def extract_from_response(log_tag: str, response: Response) -> dict:
     try:
         if response.status_code == 200:
             try: response = response.json()
             except JSONDecodeError:
                 detail = f'Invalid JSON response: {response.text[:100]}'
-                logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
+                logger.error(f'[{log_tag}] Response error | Detail: {detail}')
                 raise DeepSeekResponseError(detail)
             
             if response.get('code') == 0:
@@ -21,32 +23,49 @@ def extract_from_response(logs_tag: str, response: Response) -> dict:
                     if response['data'].get('biz_code') != 0:
                         if response['data'].get('biz_msg'):
                             detail = response['data'].get('biz_msg')
-                            logger.error(f'[{logs_tag}] DeepSeek error | Detail: {detail}')
+                            logger.error(f'[{log_tag}] DeepSeek error | Detail: {detail}')
                             raise DeepSeekError(detail)
                         else:
                              detail = 'Unknown response format'
-                             logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
+                             logger.error(f'[{log_tag}] Response error | Detail: {detail}')
                              raise DeepSeekResponseError(detail)
                 else:
                     detail = 'Unknown response format'
-                    logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
+                    logger.error(f'[{log_tag}] Response error | Detail: {detail}')
                     raise DeepSeekResponseError(detail)
             else:
                 if response.get('msg'):
                     detail = response['msg']
-                    logger.error(f'[{logs_tag}] DeepSeek error | Detail: {detail}')
+                    logger.error(f'[{log_tag}] DeepSeek error | Detail: {detail}')
                     raise DeepSeekError(detail)
                 else:
                     detail = 'Unknown response format'
-                    logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
+                    logger.error(f'[{log_tag}] Response error | Detail: {detail}')
                     raise DeepSeekResponseError(detail)
         else:
             detail = response.text[:100]
-            logger.error(f'[{logs_tag}] Response error | Detail: {detail}')
+            logger.error(f'[{log_tag}] Response error | Detail: {detail}')
             raise DeepSeekResponseError(detail)
         return response
     except APIError: raise
     except Exception as e:
         detail = str(e)
-        logger.exception(f'[{logs_tag}] Unknown error | Detail: {detail}')
+        logger.exception(f'[{log_tag}] Unknown error | Detail: {detail}')
         raise UnknownError(detail)
+
+
+
+def handle_exceptions(log_tag: str = 'API') -> Callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        async def wrapper(*args, **kwargs) -> Any:
+            try:
+                result = await func(*args, **kwargs)
+            except APIError: raise
+            except Exception as e:
+                detail = str(e)
+                logger.exception(f'[{log_tag}] Unknown error | Detail: {detail}')
+                raise UnknownError(detail)
+            return result
+        return wrapper
+    return decorator

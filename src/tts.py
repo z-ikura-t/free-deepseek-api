@@ -4,15 +4,15 @@ from .deps import get_ds_session
 from curl_cffi.requests import AsyncSession
 
 import uuid
-import models
+from . import models
 
-from src.tts.tts_client import TTS
+from .services.tts.tts_client import TTS
 
 tts_router = APIRouter(prefix='/api/tts', tags=['TTS'])
 
 
 
-@tts_router.get('/{message_id}/chat/{chat_id}')
+@tts_router.get('/chat/{chat_id}/message/{message_id}')
 async def tts(chat_id: uuid.UUID = Path(), message_id: int = Path(ge=1), ds_session: AsyncSession = Depends(get_ds_session)) -> Response:
     '''
     Generates text-to-speech (TTS) audio for the specified message.
@@ -86,7 +86,7 @@ async def get_voice(ds_session: AsyncSession = Depends(get_ds_session)) -> model
 
 
 @tts_router.put('/voice')
-async def set_voice(request: models.VoiceModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.VoiceModel:
+async def set_voice(payload: models.VoiceModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.VoiceModel:
     '''
     Sets the current TTS voice.
     
@@ -102,7 +102,7 @@ async def set_voice(request: models.VoiceModel, ds_session: AsyncSession = Depen
     - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
     '''
     
-    new_voice_id = await TTS.set_voice(ds_session, request.voice_id)
+    new_voice_id = await TTS.set_voice(ds_session, payload.voice_id)
     
     return models.VoiceModel(
         voice_id=new_voice_id['voice_id']

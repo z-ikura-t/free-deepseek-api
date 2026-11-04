@@ -1,5 +1,5 @@
 from loguru import logger
-import os, json, struct, base64
+import os, json, struct, base64, time
 
 from curl_cffi.requests import AsyncSession
 from wasmtime import Engine, Store, Module, Instance, Memory, Func
@@ -103,7 +103,8 @@ class PoWChallenge:
             
             logger.info(f'[PoW challenge] Solved | Result: {X_DS_POW_RESPONSE_b64[:40]}...')
             return {
-                'result': X_DS_POW_RESPONSE_b64
+                'result': X_DS_POW_RESPONSE_b64, 
+                'expire_at': expire_at
             }
         except (APIError, FileNotFoundError): raise
         except Exception as e:

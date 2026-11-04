@@ -15,4 +15,6 @@ AUTHORITY = 'chat.deepseek.com'
 API = '/api/v0'
 DEEPSEEK_URL = f'{SCHEME}{AUTHORITY}{API}'
 
+DEEPSEEK_CLIENT_VERSION = '2.7.0'
+
 IMPERSONATE = random.choice(['chrome', 'safari', 'firefox'])

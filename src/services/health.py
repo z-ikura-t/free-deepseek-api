@@ -1,0 +1,44 @@
+from loguru import logger
+
+from curl_cffi.requests import AsyncSession
+
+from . import settings
+from .utils import extract_from_response
+from .exceptions import APIError, UnknownError
+
+
+
+async def check_health(ds_session: AsyncSession, headers: dict | None = None) -> dict:
+    try:
+        response = await ds_session.get(
+            f'{settings.DEEPSEEK_URL}/users/current', 
+            headers=settings.HEADERS if headers is None else headers, 
+            timeout=10
+        )
+        
+        response = extract_from_response('Health', response)
+        
+        if not response['data']['biz_data'].get('id') is None:
+            user_id = response['data']['biz_data']['id']
+            logger.info(f'[Health] OK | User ID: {user_id}')
+            return {
+                'ok': True, 
+                'user_id': user_id, 
+                'detail': None
+            }
+        else:
+            detail = 'User ID not found'
+            logger.error(f'[Health] Response exception | Detail: {detail}')
+            return {
+                'ok': False, 
+                'user_id': None, 
+                'detail': detail
+            }
+    except Exception as e:
+        detail = str(e)
+        if isinstance(e, UnknownError): logger.exception(f'[Health] Unknown exception | Detail: {detail}')
+        return {
+            'ok': False, 
+            'user_id': None, 
+            'detail': detail
+        }

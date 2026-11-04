@@ -1,16 +1,16 @@
-from fastapi import APIRouter, status, Depends, HTTPException, Path
+from fastapi import APIRouter, status, Depends, Path
 
 from .deps import get_ds_session
 
-import models
+from . import models
 
-from src import settings
+from .services import settings
 
-feature_router = APIRouter(prefix='/api/feature')
+features_router = APIRouter(prefix='/api/features')
 
 
 
-@feature_router.get('/search/enabled', tags=['Search'])
+@features_router.get('/search/enabled', tags=['Search'])
 async def get_search() -> models.EnabledModel:
     '''
     Returns whether the DeepSeek search feature is enabled.
@@ -30,8 +30,8 @@ async def get_search() -> models.EnabledModel:
 
 
 
-@feature_router.put('/search/enabled', tags=['Search'])
-async def set_search(request: models.EnabledModel) -> models.EnabledModel:
+@features_router.put('/search/enabled', tags=['Search'])
+async def set_search(payload: models.EnabledModel) -> models.EnabledModel:
     '''
     Sets the DeepSeek search feature state.
     
@@ -47,7 +47,7 @@ async def set_search(request: models.EnabledModel) -> models.EnabledModel:
     - 422: validation errors (invalid input, wrong format)
     '''
     
-    settings.DEEPSEEK_SEARCH_ENABLED = request.enabled
+    settings.DEEPSEEK_SEARCH_ENABLED = payload.enabled
     
     return models.EnabledModel(
         enabled=settings.DEEPSEEK_SEARCH_ENABLED
@@ -55,7 +55,7 @@ async def set_search(request: models.EnabledModel) -> models.EnabledModel:
 
 
 
-@feature_router.get('/thinking/enabled', tags=['Thinking'])
+@features_router.get('/thinking/enabled', tags=['Thinking'])
 async def get_thinking() -> models.EnabledModel:
     '''
     Returns whether the DeepSeek thinking feature is enabled.
@@ -75,8 +75,8 @@ async def get_thinking() -> models.EnabledModel:
 
 
 
-@feature_router.put('/thinking/enabled', tags=['Thinking'])
-async def set_thinking(request: models.EnabledModel) -> models.EnabledModel:
+@features_router.put('/thinking/enabled', tags=['Thinking'])
+async def set_thinking(payload: models.EnabledModel) -> models.EnabledModel:
     '''
     Sets the DeepSeek thinking feature state.
     
@@ -92,7 +92,7 @@ async def set_thinking(request: models.EnabledModel) -> models.EnabledModel:
     - 422: validation errors (invalid input, wrong format)
     '''
     
-    settings.DEEPSEEK_THINKING_ENABLED = request.enabled
+    settings.DEEPSEEK_THINKING_ENABLED = payload.enabled
     
     return models.EnabledModel(
         enabled=settings.DEEPSEEK_THINKING_ENABLED

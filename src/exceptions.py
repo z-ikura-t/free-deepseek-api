@@ -1,23 +1,29 @@
-class APIError(Exception):
-    '''Base exception for all API-related errors.'''
-    ...
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-class ValidationError(APIError):
-    '''Raised when input validation fails (wrong date range, incorrect start/end indexes).'''
-    ...
+from .services.exceptions import (
+    APIError, 
+    ValidationError, 
+    DeepSeekError, 
+    DeepSeekResponseError, 
+    DeepSeekSSEError, 
+    UnknownError
+)
 
-class DeepSeekError(APIError):
-    '''Raised when DeepSeek returns a logical error (e.g., biz_code != 0).'''
-    ...
 
-class DeepSeekResponseError(APIError):
-    '''Raised when DeepSeek response is invalid (e.g., non-200 status, malformed JSON).'''
-    ...
 
-class DeepSeekSSEError(APIError):
-    '''Raised when SSE stream from DeepSeek is malformed or missing expected events.'''
-    ...
-
-class UnknownError(Exception):
-    '''Raised for unexpected, unhandled exceptions.'''
-    ...
+def register_exception_handlers(app: FastAPI):
+    @app.exception_handler(ValidationError)
+    async def _(request: Request, e: ValidationError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={'detail': str(e)})
+    
+    @app.exception_handler(DeepSeekError)
+    @app.exception_handler(DeepSeekResponseError)
+    @app.exception_handler(DeepSeekSSEError)
+    async def _(request: Request, e: APIError) -> JSONResponse:
+        return JSONResponse(status_code=502, content={'detail': str(e)})
+    
+    @app.exception_handler(UnknownError)
+    @app.exception_handler(Exception)
+    async def _(request: Request, e: UnknownError) -> JSONResponse:
+        return JSONResponse(status_code=500, content={'detail': str(e)})

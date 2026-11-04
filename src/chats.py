@@ -1,199 +1,77 @@
-from loguru import logger
-from curl_cffi.requests import AsyncSession, Response
+from fastapi import APIRouter, status, Depends, Path
 
-from . import settings
-from .utils import extract_from_response
-from .exceptions import APIError, ValidationError, UnknownError
+from .deps import get_ds_session
+from curl_cffi.requests import AsyncSession
+
+from datetime import date, datetime
+
+from . import models
+
+from .services.chats import Chats
+
+chats_router = APIRouter(prefix='/api/chats', tags=['Chats'])
 
 
 
-class Chats:
-    _logs_tag = 'Chats'
+@chats_router.get('')
+async def load_chats(start: int | None = None, end: int | None = None, start_date: date | None = None, end_date: date | None = None, ds_session: AsyncSession = Depends(get_ds_session)) -> models.ChatHistoryModel:
+    '''
+    Gets all chats and returns their parameters.
     
+    Query params:
+    - start (int | None): the starting index of the chat list (inclusive). Default: 0.
+    - end (int | None): the ending index of the chat list (exclusive). Default: None
+    - start_date (str | None): filter chats updated on or after this date. Format: YYYY-MM-DD.
+    - end_date (str | None): filter chats updated before this date. Format: YYYY-MM-DD.
     
-    @classmethod
-    async def _load_chats(cls, ds_session: AsyncSession, updated_at: float | None = None) -> dict:
-        response = await ds_session.get(
-            f'{settings.DEEPSEEK_URL}/chat_session/fetch_page', 
-            headers=settings.HEADERS, 
-            params={} if updated_at is None else {'lte_cursor.pinned': False, 'lte_cursor.updated_at': updated_at}, 
-            timeout=10
-        )
-        
-        response = extract_from_response(cls._logs_tag, response)
-        return response
+    Behavior:
+    - If any date param is provided (start_date or end_date), start and end are ignored:
+        - start_date only: returns chats from that date to now.
+        - end_date only: returns chats from the beginning up to that date.
+        - Both: returns chats within the date range.
     
+    - If no date params are provided:
+        - start and end: returns range from start to end.
+        - start only: returns from start to the last chat.
+        - end only: returns from the first chat up to end.
     
-    @classmethod
-    async def _log_result(cls, chat_count: int) -> None:
-        logger.info(f'[{cls._logs_tag}] Retrieved {chat_count} chats')
+    Returns:
+    - chats (list[dict]): list of the chats
+        - chat_id (str): ID of the chat
+        - title (str): title of the chat
+        - updated_at (float): timestamp when chat messages were updated
     
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
     
-    @classmethod
-    def _has_more_chats(cls, response: Response) -> bool:
-        has_more = response['data']['biz_data']['has_more']
-        if not has_more: return False
-        return True
+    if start_date or end_date:
+        if start_date: start_date = datetime.combine(start_date, datetime.min.time()).timestamp()
+        if end_date: end_date = datetime.combine(end_date, datetime.min.time()).timestamp()
+        chats = await Chats.load_timestamp(ds_session, start_date, end_date)
+    else:
+        chats = await Chats.load_range(ds_session, start, end)
     
+    return models.ChatHistoryModel(
+        chats=chats['chats']
+    )
+
+
+
+@chats_router.delete('', status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chats(payload: models.DeleteChatsModel, ds_session: AsyncSession = Depends(get_ds_session)) -> None:
+    '''
+    Deletes multiple chats by their IDs.
     
-    @classmethod
-    def _add_chats(cls, chat_sessions: list[dict], chats: dict) -> dict:
-        for chat_session in chat_sessions:
-            chats['chats'].append({
-                'chat_id': chat_session['id'], 
-                'title': chat_session['title'], 
-                'updated_at': chat_session['updated_at']
-        })
-        return chats
+    Args:
+    - chat_ids (list[str]): list of chat IDs to delete
     
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
     
-    @classmethod
-    def _get_updated_at(cls, response: Response) -> float | None:
-        if not response['data']['biz_data']['chat_sessions']: return None
-        updated_at = response['data']['biz_data']['chat_sessions'][-1]['updated_at']
-        return updated_at
-    
-    
-    @classmethod
-    async def _process_response(cls, ds_session: AsyncSession, response: Response) -> dict | None:
-        has_more = cls._has_more_chats(response)
-        if not has_more: return None
-        
-        updated_at = cls._get_updated_at(response)
-        if updated_at is None: return None
-        
-        response = await cls._load_chats(ds_session, updated_at)
-        return response
-    
-    
-    @classmethod
-    async def load_range(cls, ds_session: AsyncSession, start: int | None = None, end: int | None = None) -> dict:
-        try:
-            if start is None: start = 0
-            if start < 0: raise ValidationError('Start index must be greater than or equal to 0')
-            if not end is None and end < 1: raise ValidationError('End index must be greater than or equal to 1')
-            if not end is None and end < start: raise ValidationError('End index must be greater than or equal to start index')
-            
-            chats = {'chats': []}
-            cursor_chats_count = 100
-            
-            response = await cls._load_chats(ds_session)
-            
-            updated_at = cls._get_updated_at(response)
-            if updated_at is None:
-                await cls._log_result(len(chats['chats']))
-                return chats
-            
-            for _ in range(start // cursor_chats_count):
-                response = await cls._process_response(ds_session, response)
-                if response is None:
-                    await cls._log_result(len(chats['chats']))
-                    return chats
-            
-            if len(response['data']['biz_data']['chat_sessions']) <= start % cursor_chats_count:
-                await cls._log_result(len(chats['chats']))
-                return chats
-            
-            last_chat = response['data']['biz_data']['chat_sessions'][start % cursor_chats_count]
-            if last_chat: updated_at = last_chat['updated_at']
-            else:
-                await cls._log_result(len(chats['chats']))
-                return chats
-            
-            response = await cls._load_chats(ds_session, updated_at)
-            
-            if not end is None:
-                chats_count = end - start
-                for _ in range(chats_count // cursor_chats_count):
-                    chats = cls._add_chats(response['data']['biz_data']['chat_sessions'], chats)
-                    response = await cls._process_response(ds_session, response)
-                    if response is None:
-                        await cls._log_result(len(chats['chats']))
-                        return chats
-                
-                has_more = cls._has_more_chats(response)
-                if not has_more: return chats
-                
-                k = chats_count % 100
-                chats = cls._add_chats(response['data']['biz_data']['chat_sessions'][:k], chats)
-            else:
-                while True:
-                    chats = cls._add_chats(response['data']['biz_data']['chat_sessions'], chats)
-                    response = await cls._process_response(ds_session, response)
-                    if response is None:
-                        await cls._log_result(len(chats['chats']))
-                        return chats
-            
-            await cls._log_result(len(chats['chats']))
-            return chats
-        except APIError: raise
-        except Exception as e:
-            detail = str(e)
-            logger.exception(f'[{cls._logs_tag}] Unknown exception | Detail: {detail}')
-            raise UnknownError(detail) from e
-    
-    
-    @classmethod
-    async def load_timestamp(cls, ds_session: AsyncSession, start_timestamp: float | None = None, end_timestamp: float | None = None) -> dict:
-        try:
-            if start_timestamp and end_timestamp and end_timestamp < start_timestamp: raise ValidationError('End timestamp must be greater than or equal to start timestamp')
-            start_timestamp, end_timestamp = end_timestamp, start_timestamp
-            
-            chats = {'chats': []}
-            
-            response = await cls._load_chats(ds_session, start_timestamp if not start_timestamp is None else None)
-            updated_at = cls._get_updated_at(response)
-            if updated_at is None:
-                await cls._log_result(len(chats['chats']))
-                return chats
-            
-            while end_timestamp is None or updated_at > end_timestamp:
-                chats = cls._add_chats(response['data']['biz_data']['chat_sessions'], chats)
-                
-                has_more = cls._has_more_chats(response)
-                if not has_more:
-                    await cls._log_result(len(chats['chats']))
-                    return chats
-                
-                updated_at = cls._get_updated_at(response)
-                if updated_at is None:
-                    await cls._log_result(len(chats['chats']))
-                    return chats
-                elif not end_timestamp is None and updated_at <= end_timestamp: break
-                
-                response = await cls._load_chats(ds_session, updated_at)
-            
-            if not end_timestamp is None:
-                for i, chat_session in enumerate(response['data']['biz_data']['chat_sessions']):
-                    if chat_session['updated_at'] <= end_timestamp: break
-                chats = cls._add_chats(response['data']['biz_data']['chat_sessions'][:i], chats)
-            
-            await cls._log_result(len(chats['chats']))
-            return chats
-        except APIError: raise
-        except Exception as e:
-            detail = str(e)
-            logger.exception(f'[{cls._logs_tag}] Unknown exception | Detail: {detail}')
-            raise UnknownError(detail) from e
-    
-    
-    @classmethod
-    async def delete(cls, ds_session: AsyncSession, chat_ids: list[str]) -> None:
-        try:
-            response = await ds_session.post(
-                f'{settings.DEEPSEEK_URL}/chat_session/delete', 
-                headers=settings.HEADERS, 
-                json={
-                    'chat_session_ids': chat_ids
-                }
-            )
-            
-            response = extract_from_response('Delete Chats', response)
-            
-            logger.info(f'[Delete Chats] Deleted {len(chat_ids)} chats')
-            return None
-        except APIError: raise
-        except Exception as e:
-            detail = str(e)
-            logger.exception(f'[Delete Chats] Unknown exception | Detail: {detail}')
-            raise UnknownError(detail) from e
+    await Chats.delete(ds_session, payload.chat_ids)

@@ -3,9 +3,9 @@ from fastapi import APIRouter, status, Depends
 from .deps import get_ds_session
 from curl_cffi.requests import AsyncSession
 
-import models
+from . import models
 
-from src import credentials, settings
+from .services import credentials, settings
 
 token_router = APIRouter(prefix='/api/token', tags=['Token'])
 
@@ -30,7 +30,7 @@ async def get_token() -> models.ValueModel:
 
 
 @token_router.put('')
-async def set_token(request: models.ValueModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.ValueModel:
+async def set_token(payload: models.ValueModel, ds_session: AsyncSession = Depends(get_ds_session)) -> models.ValueModel:
     '''
     Sets the user's DeepSeek API token.
     
@@ -46,7 +46,7 @@ async def set_token(request: models.ValueModel, ds_session: AsyncSession = Depen
     - 502: DeepSeek errors (invalid token or unexpected response format)
     '''
     
-    await credentials.update_token(ds_session, request.value)
+    await credentials.update_token(ds_session, payload.value)
     
     return models.ValueModel(
         value=settings.DEEPSEEK_TOKEN

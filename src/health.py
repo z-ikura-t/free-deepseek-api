@@ -1,44 +1,35 @@
-from loguru import logger
+from fastapi import APIRouter, status, Depends
 
+from .deps import get_ds_session
 from curl_cffi.requests import AsyncSession
 
-from . import settings
-from .utils import extract_from_response
-from .exceptions import APIError, UnknownError
+from . import models
+
+from .services.health import check_health
+
+health_router = APIRouter(tags=['Health'])
 
 
 
-async def check_health(ds_session: AsyncSession, headers: dict | None = None) -> dict:
-    try:
-        response = await ds_session.get(
-            f'{settings.DEEPSEEK_URL}/users/current', 
-            headers=settings.HEADERS if headers is None else headers, 
-            timeout=10
-        )
-        
-        response = extract_from_response('Health', response)
-        
-        if not response['data']['biz_data'].get('id') is None:
-            user_id = response['data']['biz_data']['id']
-            logger.info(f'[Health] OK | User ID: {user_id}')
-            return {
-                'ok': True, 
-                'user_id': user_id, 
-                'detail': None
-            }
-        else:
-            detail = 'User ID not found'
-            logger.error(f'[Health] Response exception | Detail: {detail}')
-            return {
-                'ok': False, 
-                'user_id': None, 
-                'detail': detail
-            }
-    except Exception as e:
-        detail = str(e)
-        if isinstance(e, UnknownError): logger.exception(f'[Health] Unknown exception | Detail: {detail}')
-        return {
-            'ok': False, 
-            'user_id': None, 
-            'detail': detail
-        }
+@health_router.get('/api/health')
+async def health(ds_session: AsyncSession = Depends(get_ds_session)) -> models.HealthModel:
+    '''
+    Checks the health status of the API and DeepSeek token validity.
+    
+    Returns:
+    - ok (bool): True if everything works, False if any error occurs
+    - user_id (str | None): user ID from DeepSeek (if token is valid)
+    - detail (str | None): error message (if any)
+    - service (str): service name ("free-deepseek-api")
+    
+    Raises:
+    - 500: unexpected errors
+    '''
+    
+    health_status = await check_health(ds_session)
+    
+    return models.HealthModel(
+        ok=health_status['ok'], 
+        user_id=health_status['user_id'], 
+        detail=health_status['detail']
+    )

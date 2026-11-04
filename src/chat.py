@@ -1,141 +1,115 @@
-from loguru import logger
+from fastapi import APIRouter, status, Depends, HTTPException, Path
+
+from .deps import get_ds_session
 from curl_cffi.requests import AsyncSession
 
-from . import settings
-from .utils import extract_from_response
-from .exceptions import APIError, DeepSeekError, UnknownError
+import uuid
+from . import models
+
+from .services.chat import Chat
+
+chat_router = APIRouter(prefix='/api/chat', tags=['Chat'])
 
 
 
-class Chat:
-    @classmethod
-    async def create(cls, ds_session: AsyncSession) -> dict:
-        try:
-            response = await ds_session.post(
-                f'{settings.DEEPSEEK_URL}/chat_session/create', 
-                headers=settings.HEADERS, 
-            )
-            
-            response = extract_from_response('Create Chat', response)
-            
-            chat_session = response['data']['biz_data']['chat_session']
-            if not chat_session:
-                detail = 'Chat session is empty'
-                logger.error(f'[Create Chat] Not created | Detail: {detail}')
-                raise DeepSeekError(detail)
-            
-            chat_id = chat_session['id']
-            inserted_at = chat_session['inserted_at']
-            updated_at = chat_session['updated_at']
-            
-            if not chat_id:
-                detail = 'Chat ID is empty'
-                logger.error(f'[Create Chat] Not created | Detail: {detail}')
-                raise DeepSeekError(detail)
-            
-            logger.info(f'[Create Chat] Created | Chat ID: {chat_id}')
-            return {
-                'chat_id': chat_id, 
-                'title': None, 
-                'inserted_at': inserted_at, 
-                'updated_at': updated_at, 
-                'current_message_id': None, 
-                'messages': []
-            }
-        except APIError: raise
-        except Exception as e:
-            detail = str(e)
-            logger.exception(f'[Create Chat] Unknown exception | Detail: {detail}')
-            raise UnknownError(detail) from e
+@chat_router.post('/create', status_code=status.HTTP_201_CREATED)
+async def create_new_chat(ds_session: AsyncSession = Depends(get_ds_session)) -> models.ChatModel:
+    '''
+    Creates a chat and returns its parameters.
     
+    Returns:
+    - chat_id (str): ID of the new chat
+    - title (str): None for the new chat
+    - inserted_at (float): timestamp when chat was created
+    - updated_at (float): timestamp when chat was created
+    - current_message_id (None): None for the new chat
+    - messages (list): empty list for the new chat
     
-    @classmethod
-    async def load(cls, ds_session: AsyncSession, chat_id: str) -> dict:
-        try:
-            response = await ds_session.get(
-                f'{settings.DEEPSEEK_URL}/chat/history_messages?chat_session_id={chat_id}', 
-                headers=settings.HEADERS, 
-            )
-            
-            response = extract_from_response('Get Chat', response)
-            
-            chat_session = response['data']['biz_data']['chat_session']
-            if not chat_session:
-                detail = 'Chat session is empty'
-                logger.error(f'[Get Chat] Not created | Detail: {detail}')
-                raise DeepSeekError(detail)
-            
-            title = chat_session['title']
-            inserted_at = chat_session['inserted_at']
-            updated_at = chat_session['updated_at']
-            current_message_id = chat_session['current_message_id']
-            messages = []
-            
-            chat_messages = response['data']['biz_data']['chat_messages']
-            for chat_message in chat_messages:
-                message_files = []
-                message_think = None
-                message_content = ''
-                for fragment in chat_message['fragments']:
-                    if fragment['type'] == 'FILE':
-                        for message_file in fragment['files']:
-                            message_files.append(message_file)
-                    elif fragment['type'] == 'THINK':
-                        message_think = fragment['content']
-                    elif fragment['type'] in ('REQUEST', 'RESPONSE'):
-                        message_content = fragment['content']
-                messages.append({
-                    'message_id': chat_message['message_id'], 
-                    'parent_message_id': chat_message['parent_id'], 
-                    'role': chat_message['role'], 
-                    'think': message_think, 
-                    'content': message_content, 
-                    'files': [{
-                        'file_id': message_file['id'], 
-                        'name': message_file['file_name'], 
-                        'size': message_file['file_size'], 
-                    } for message_file in message_files]
-                })
-            
-            logger.info(f'[Get chat] Retrieved | Chat ID: {chat_id}')
-            return {
-                'chat_id': chat_id, 
-                'title': title, 
-                'inserted_at': inserted_at, 
-                'updated_at': updated_at, 
-                'current_message_id': current_message_id, 
-                'messages': messages
-             }
-        except APIError: raise
-        except Exception as e:
-            detail = str(e)
-            logger.exception(f'[Get Chat] Unknown exception | Detail: {detail}')
-            raise UnknownError(detail) from e
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
     
+    new_chat = await Chat.create(ds_session)
     
-    @classmethod
-    async def update_title(cls, ds_session: AsyncSession, chat_id: str, new_title: str) -> dict:
-        try:
-            response = await ds_session.post(
-                f'{settings.DEEPSEEK_URL}/chat_session/update_title', 
-                headers=settings.HEADERS, 
-                json={
-                    'chat_session_id': chat_id, 
-                    'title': new_title
-                }
-            )
-            
-            response = extract_from_response('Chat Title', response)
-            
-            title = response['data']['biz_data']['title']
-            
-            logger.info(f'[Chat Title] Title changed | New title: {title}')
-            return {
-                'chat_id': chat_id, 
-                'title': title
-            }
-        except APIError: raise
-        except Exception as e:
-            detail = str(e)
-            logger.exception(f'[Chat Title] Unknown exception | Detail: {detail}')
-            raise UnknownError(detail) from e
+    return models.ChatModel(
+        chat_id=new_chat['chat_id'],
+        title=new_chat['title'],
+        inserted_at=new_chat['inserted_at'],
+        updated_at=new_chat['updated_at'],
+        current_message_id=new_chat['current_message_id'],
+        messages=new_chat['messages']
+    )
+
+
+
+@chat_router.get('/{chat_id}')
+async def load_chat(chat_id: uuid.UUID = Path(), ds_session: AsyncSession = Depends(get_ds_session)) -> models.ChatModel:
+    '''
+    Gets chat by ID and returns its parameters.
+    
+    Args:
+    - chat_id (str): ID of the chat
+    
+    Returns:
+    - chat_id (str): ID of the chat
+    - title (str): title of the chat
+    - inserted_at (float): timestamp when chat was created
+    - updated_at (float): timestamp when chat messages were updated
+    - current_message_id (int | None): last message id
+    - messages (list[dict]): list of chat messages
+        - message_id (int): ID of the message
+        - parent_message_id (int | None): ID of the parent message
+        - role (str): "USER" if author is user, "ASSISTANT" if author is DeepSeek
+        - think (str | None): the model's internal reasoning or chain‑of‑thought text
+        - content (str): text of the message
+        - files (list[dict]): list of files attached to the message
+            - file_id (str): ID of the uploaded file
+            - name (str): name of the file
+            - size (int): size of the file in bytes
+    
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
+    
+    chat = await Chat.load(ds_session, str(chat_id))
+    
+    return models.ChatModel(
+        chat_id=chat['chat_id'], 
+        title=chat['title'], 
+        inserted_at=chat['inserted_at'], 
+        updated_at=chat['updated_at'], 
+        current_message_id=chat['current_message_id'], 
+        messages=chat['messages']
+    )
+
+
+
+@chat_router.patch('/{chat_id}/title')
+async def update_chat_title(payload: models.RequestNewChatTitleModel, chat_id: uuid.UUID = Path(), ds_session: AsyncSession = Depends(get_ds_session)) -> models.ResponseNewChatTitleModel:
+    '''
+    Updates the title of a chat by its ID.
+    
+    Args:
+    - chat_id (str): ID of the chat to update
+    - title (str): new title of the chat
+    
+    Returns:
+    - chat_id (str): ID of the updated chat
+    - title (str): new title of the chat
+    
+    Raises:
+    - 422: validation errors (invalid input, wrong format)
+    - 500: unexpected errors
+    - 502: DeepSeek errors (invalid token, wrong message ID or unexpected response format)
+    '''
+    
+    chat = await Chat.update_title(ds_session, str(chat_id), payload.title)
+    
+    return models.ResponseNewChatTitleModel(
+        chat_id=chat['chat_id'], 
+        title=chat['title']
+    )

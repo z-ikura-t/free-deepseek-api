@@ -66,7 +66,7 @@ How to get the token manually:
 
 ## Run
 ```bash
-uvicorn run:client --reload --port 4971
+uvicorn main:app --reload --port 4971
 ```
 
 Once the server is running, full interactive API documentation is available at:
@@ -338,7 +338,7 @@ curl -N -X POST 'http://127.0.0.1:4971/api/chat/regenerate/stream' \
 Generate text-to-speech audio for the specified message. Returns **Ogg Opus** audio (`audio/ogg`) — play it directly or save it to a file.
 
 ```bash
-curl -X GET 'http://127.0.0.1:4971/api/tts/{message_id}/chat/{chat_id}'
+curl -X GET 'http://127.0.0.1:4971/api/tts/chat/{chat_id}/message/{message_id}'
 ```
 
 **Replace:**
@@ -347,7 +347,7 @@ curl -X GET 'http://127.0.0.1:4971/api/tts/{message_id}/chat/{chat_id}'
 
 **Example (save audio to a file):**
 ```bash
-curl -X GET 'http://127.0.0.1:4971/api/tts/6/chat/8da7a55b-81db-4b13-b5b2-cc25d77148b8' \
+curl -X GET 'http://127.0.0.1:4971/api/tts/chat/8da7a55b-81db-4b13-b5b2-cc25d77148b8/message/6' \
   -o audio1.opus
 ```
 
@@ -397,7 +397,7 @@ Manage global settings via API.
 
 **Example:**
 ```bash
-curl -X PUT 'http://127.0.0.1:4971/api/feature/search/enabled' \
+curl -X PUT 'http://127.0.0.1:4971/api/features/search/enabled' \
   -H 'Content-Type: application/json' \
   -d '{"enabled": true}'
 ```
