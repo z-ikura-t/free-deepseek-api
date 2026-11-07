@@ -7,7 +7,7 @@ from curl_cffi.requests import AsyncSession
 from . import settings
 from .utils import handle_exceptions
 from .pow_challenge.pow_challenge import PoWChallenge
-from .exceptions import APIError, DeepSeekResponseError, DeepSeekSSEError, UnknownError
+from .exceptions import DeepSeekResponseError, DeepSeekSSEError, UnknownError
 
 
 
@@ -72,10 +72,10 @@ class Message:
     
     @classmethod
     def _check_sse_response_status(cls, status: str) -> None:
-        if status != 'event: ready':
+        if status.strip() != 'event: ready':
             try:
                 status = json.loads(status)
-                detail = status['data']['biz_msg']
+                detail = status.get('data', {}).get('biz_msg', 'Unknown start event message')
             except JSONDecodeError:
                 detail = status
             logger.error(f'[{cls._logs_tag}] SSE exception | Detail: {detail}')
@@ -89,37 +89,57 @@ class Message:
         sse_message_content = ''
         sse_message_data = {}
         if sse_message_event_type == cls._event_files_type:
+            file_id = data.get('id')
+            file_name = data.get('file_name')
+            file_size = data.get('file_size')
+            if file_id is None or file_name is None or file_size is None: raise DeepSeekSSEError()
             sse_message_content = {
-                'file_id': data['id'], 
-                'name': data['file_name'], 
-                'size': data['file_size']
+                'file_id': file_id, 
+                'name': file_name, 
+                'size': file_size
             }
             return sse_message_content_type, sse_message_content, sse_message_data
         
         if not data.get('p') is None:
             if data.get('p') == 'response' and data.get('v'):
-                if isinstance(data['v'][0]['v'], list) and not data['v'][0]['v'][0].get('content') is None:
-                    sse_message_content_type = data['v'][0]['v'][0]['type']
-                    sse_message_content = data['v'][0]['v'][0]['content']
+                if data['v'][0].get('v') is None: raise DeepSeekSSEError()
+                if data['v'][0]['v'] and isinstance(data['v'][0]['v'], list):
+                    sse_message_content_type = data['v'][0]['v'][0].get('type')
+                    sse_message_content = data['v'][0]['v'][0].get('content')
+                    if sse_message_content_type is None or sse_message_content is None: raise DeepSeekSSEError()
             elif data.get('p') == 'response/fragments' and data.get('v'):
-                sse_message_content_type = data['v'][0]['type']
-                sse_message_content = data['v'][0]['content']
-            elif data.get('p') == 'response/fragments/-1' and data.get('v'): sse_message_content = data['v'][0]['v']
+                sse_message_content_type = data['v'][0].get('type')
+                sse_message_content = data['v'][0].get('content')
+                if sse_message_content_type is None or sse_message_content is None: raise DeepSeekSSEError()
+            elif data.get('p') == 'response/fragments/-1' and data.get('v'):
+                sse_message_content = data['v'][0].get('v')
+                if sse_message_content is None: raise DeepSeekSSEError()
             elif data.get('p') == 'response/fragments/-1/content' and data.get('v'): sse_message_content = data['v']
         elif not data.get('v') is None:
             if isinstance(data['v'], str): sse_message_content = data['v']
-            elif isinstance(data['v'], list): sse_message_content = data['v'][0]['v']
+            elif isinstance(data['v'], list):
+                sse_message_content = data['v'][0].get('v')
+                if sse_message_content is None: raise DeepSeekSSEError()
             elif isinstance(data['v'], dict):
-                message_data = data['v']['response']
+                message_data = data['v'].get('response')
+                if message_data is None: raise DeepSeekSSEError()
+                
+                message_id = message_data.get('message_id')
+                parent_message_id = message_data.get('parent_id', 'None')
+                message_role = message_data.get('role')
+                if message_id is None or parent_message_id == 'None' or message_role is None: raise DeepSeekSSEError()
                 
                 sse_message_data = {
-                    'message_id': message_data['message_id'], 
-                    'parent_message_id': message_data['parent_id'], 
-                    'role': message_data['role']
+                    'message_id': message_id, 
+                    'parent_message_id': parent_message_id, 
+                    'role': message_role
                 }
                 
-                sse_message_content_type = message_data['fragments'][0]['type']
-                sse_message_content = message_data['fragments'][0]['content']
+                fragments = message_data.get('fragments')
+                if not fragments: raise DeepSeekSSEError()
+                sse_message_content_type = fragments[0].get('type')
+                sse_message_content = fragments[0].get('content')
+                if sse_message_content_type is None or sse_message_content is None: raise DeepSeekSSEError()
         
         return sse_message_content_type, sse_message_content, sse_message_data
     
@@ -204,8 +224,8 @@ class Message:
     @classmethod
     async def _collect_stream(cls, ds_session: AsyncSession, request_data: dict, operation: str, parent_message_id: int | None):
         try:
-            logger.info(f'[{cls._logs_tag}] Event ready')
-            yield ('event', 'event: ready\n')
+            logger.info(f'[{cls._logs_tag}] Stream started')
+            yield ('event', 'event: ready\n\n')
             
             current_type = None
             async for chunk in cls._read_event_stream(ds_session, request_data, operation):
@@ -250,7 +270,7 @@ class Message:
                     }, ensure_ascii=False)}\n\n')
             
             yield ('event', 'event: close\n\n')
-            logger.info(f'[{cls._logs_tag}] Event close')
+            logger.info(f'[{cls._logs_tag}] Stream finished')
         except Exception as e:
             detail = str(e)
             if isinstance(e, UnknownError): logger.exception(f'[{cls._logs_tag}] Unknown exception | Detail: {detail}')

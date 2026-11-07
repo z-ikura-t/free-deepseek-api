@@ -12,11 +12,16 @@ class DeepSeekError(APIError):
 
 class DeepSeekResponseError(APIError):
     '''Raised when DeepSeek response is invalid (e.g., non-200 status, malformed JSON).'''
-    ...
+    
+    def __init__(self, message: str = 'Unknown DeepSeek response format'):
+        super().__init__(message)
 
 class DeepSeekSSEError(APIError):
     '''Raised when SSE stream from DeepSeek is malformed or missing expected events.'''
     ...
+    
+    def __init__(self, message: str = 'Unknown DeepSeek SSE response format'):
+        super().__init__(message)
 
 class UnknownError(Exception):
     '''Raised for unexpected, unhandled exceptions.'''

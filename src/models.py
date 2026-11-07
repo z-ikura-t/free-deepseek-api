@@ -1,24 +1,40 @@
-import uuid
+from typing import Literal, Annotated
+from pydantic import BaseModel, Field, ConfigDict, BeforeValidator
 
-from typing import Literal
-from pydantic import BaseModel, Field, validator, ConfigDict
+import uuid
 
 
 
 class FrozenModel(BaseModel):
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
 
+
+def validate_uuid(value: str) -> str:
+    uuid.UUID(str(value))
+
+def validate_chat_id(value: str) -> str:
+    try: validate_uuid(value)
+    except ValueError: raise ValueError('Invalid chat ID format. Must be a valid UUID.')
+    return value
+
+ChatIDType = Annotated[str, BeforeValidator(validate_chat_id)]
 
 class ChatIDMixin(FrozenModel):
-    chat_id: str = Field(min_length=36, max_length=36)
+    chat_id: ChatIDType
+
+
+
+def validate_file_id(value: str) -> str:
+    detail = 'Invalid file ID format. Must be a valid UUID with "file-" prefix.'
     
-    @validator('chat_id')
-    def validate_chat_id(cls, value: str) -> str:
-        try: uuid.UUID(value)
-        except ValueError: raise ValueError('Invalid chat ID format. Must be a valid UUID.')
-        return value
+    if not value.startswith('file-'): raise ValueError(detail)
+    
+    try: validate_uuid(value[5:])
+    except ValueError: raise ValueError(detail)
+    return value
+
+FileIDType = Annotated[str, BeforeValidator(validate_file_id)]
 
 
 
@@ -40,18 +56,12 @@ class ChatHistoryModel(FrozenModel):
 
 
 class DeleteChatsModel(FrozenModel):
-    chat_ids: list[str] = Field(min_length=36, max_length=36)
-    
-    @validator('chat_ids', each_item=True)
-    def validate_chat_id(cls, value: str) -> str:
-        try: uuid.UUID(value)
-        except ValueError: raise ValueError('Invalid chat ID format. Must be a valid UUID.')
-        return value
+    chat_ids: list[ChatIDType] = Field(min_length=1)
 
 
 
 class ChatFileModel(FrozenModel):
-    file_id: str = Field(min_length=41, max_length=41)
+    file_id: FileIDType
     name: str = Field(min_length=1)
     size: int = Field(ge=1)
 
@@ -83,7 +93,7 @@ class ResponseNewChatTitleModel(ChatIDMixin):
 class RequestMessageModel(ChatIDMixin):
     parent_message_id: int | None = Field(ge=2, default=None)
     prompt: str = Field(min_length=1)
-    file_ids: list[str] = Field(min_length=41, max_length=41, default_factory=list)
+    file_ids: list[FileIDType] = Field(default_factory=list)
 
 
 
@@ -117,7 +127,7 @@ class FilePathsModel(FrozenModel):
 
 class UploadedFileModel(FrozenModel):
     ok: bool
-    file_id: str | None = Field(min_length=41, max_length=41, default=None)
+    file_id: FileIDType | None = None
     name: str | None = Field(min_length=1, default=None)
     size: int | None = Field(ge=1, default=None)
     content_type: str | None = Field(min_length=1, default=None)

@@ -7,7 +7,7 @@ from curl_cffi import AsyncSession
 from . import settings
 from .health import check_health
 from .utils import extract_from_response, handle_exceptions
-from .exceptions import APIError, DeepSeekError, UnknownError
+from .exceptions import DeepSeekError, DeepSeekResponseError
 
 
 
@@ -52,10 +52,15 @@ async def get_ticket(ds_session: AsyncSession, scope: str) -> dict:
     
     response = extract_from_response('Ticket', response)
     
-    ticket = response['data']['biz_data']['ticket']
-    expires_in = response['data']['biz_data']['expires_in_secs']
+    biz_data = response['data'].get('biz_data')
+    if biz_data is None: raise DeepSeekResponseError()
+    ticket = biz_data.get('ticket')
+    if ticket is None: raise DeepSeekResponseError()
+    expires_in = biz_data.get('expires_in_secs')
+    if expires_in is None: raise DeepSeekResponseError()
     
-    logger.info(f'[Ticket] Received | Expires in: {expires_in}')
+    logger.info(f'[Ticket] Received | Expires in (seconds): {expires_in}')
     return {
-        'ticket': ticket
+        'ticket': ticket, 
+        'expires_in_seconds': expires_in
     }

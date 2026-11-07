@@ -29,6 +29,7 @@ class Files:
     @classmethod
     async def upload(cls, ds_session: AsyncSession, file_paths: list[str]) -> dict:
         files = []
+        unknown_response_exception_detail = 'Unknown DeepSeek response format'
         for file_path in file_paths:
             try:
                 path = Path(file_path)
@@ -64,7 +65,10 @@ class Files:
                 
                 response = extract_from_response('Upload Files', response)
                 
-                file_id = response['data']['biz_data']['id']
+                biz_data = response['data'].get('biz_data')
+                if biz_data is None: files.append(cls._failed_file(unknown_response_exception_detail)); continue
+                file_id = biz_data.get('id')
+                if file_id is None: files.append(cls._failed_file(unknown_response_exception_detail)); continue
                 
                 attempts = 5
                 error_detail = None
@@ -78,10 +82,13 @@ class Files:
                     
                     response = extract_from_response('Upload Files', response)
                     
-                    if not response['data']['biz_data'].get('files'): error_detail = 'File not found in response'; break
-                    status = response['data']['biz_data']['files'][0]['status']
+                    biz_data = response['data'].get('biz_data')
+                    if biz_data is None: error_detail = unknown_response_exception_detail; break
+                    if not biz_data.get('files'): error_detail = 'File not found in response'; break
+                    status = biz_data['files'][0].get('status')
                     
-                    if status == 'SUCCESS': break
+                    if status is None: error_detail = unknown_response_exception_detail; break
+                    elif status == 'SUCCESS': break
                     elif status == 'CONTENT_EMPTY': error_detail = 'No text could be extracted from the file'; break
                     elif status == 'FAILED': continue
                     
@@ -98,7 +105,7 @@ class Files:
                 })
             except Exception as e: files.append(cls._failed_file(f'Error while uploading a file: {str(e)}')); continue
         
-        logger.info(f'[Upload Files] Uploaded | Files count: {len(files)}')
+        logger.info(f'[Upload Files] Uploaded {len(files)} files')
         return {
             'files': files
         }

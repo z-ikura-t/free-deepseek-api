@@ -3,7 +3,7 @@ from curl_cffi.requests import AsyncSession, Response
 
 from . import settings
 from .utils import extract_from_response, handle_exceptions
-from .exceptions import APIError, ValidationError, UnknownError
+from .exceptions import ValidationError, DeepSeekResponseError
 
 
 
@@ -14,7 +14,7 @@ class Chats:
             f'{settings.DEEPSEEK_URL}/chat_session/fetch_page', 
             headers=settings.HEADERS, 
             params={} if updated_at is None else {'lte_cursor.pinned': False, 'lte_cursor.updated_at': updated_at}, 
-            timeout=10
+            timeout=25
         )
         
         response = extract_from_response('Load Chats', response)
@@ -22,13 +22,17 @@ class Chats:
     
     
     @classmethod
-    async def _log_result(cls, chat_count: int) -> None:
-        logger.info(f'[Load Chats] Retrieved {chat_count} chats')
+    async def _log_result(cls, chats: int) -> None:
+        logger.info(f'[Load Chats] Loaded {len(chats)} chats')
     
     
     @classmethod
     def _has_more_chats(cls, response: Response) -> bool:
-        has_more = response['data']['biz_data']['has_more']
+        biz_data = response['data'].get('biz_data')
+        if biz_data is None: raise DeepSeekResponseError()
+        has_more = biz_data.get('has_more')
+        if has_more is None: raise DeepSeekResponseError()
+        
         if not has_more: return False
         return True
     
@@ -36,18 +40,27 @@ class Chats:
     @classmethod
     def _add_chats(cls, chat_sessions: list[dict], chats: dict) -> dict:
         for chat_session in chat_sessions:
+            chat_id = chat_session.get('id')
+            title = chat_session.get('title')
+            updated_at = chat_session.get('updated_at')
+            if chat_id is None or title is None or updated_at is None: raise DeepSeekResponseError()
+            
             chats['chats'].append({
-                'chat_id': chat_session['id'], 
-                'title': chat_session['title'], 
-                'updated_at': chat_session['updated_at']
-        })
+                'chat_id': chat_id, 
+                'title': title, 
+                'updated_at': updated_at
+            })
         return chats
     
     
     @classmethod
     def _get_updated_at(cls, response: Response) -> float | None:
-        if not response['data']['biz_data']['chat_sessions']: return None
-        updated_at = response['data']['biz_data']['chat_sessions'][-1]['updated_at']
+        biz_data = response['data'].get('biz_data')
+        if biz_data is None: raise DeepSeekResponseError()
+        chat_sessions = biz_data.get('chat_sessions')
+        if not chat_sessions: return None
+        updated_at = chat_sessions[-1].get('updated_at')
+        if updated_at is None: raise DeepSeekResponseError()
         return updated_at
     
     
@@ -61,6 +74,15 @@ class Chats:
         
         response = await cls._load_chats(ds_session, updated_at)
         return response
+    
+    
+    @classmethod
+    def _get_chat_sessions(cls, response: dict) -> list:
+        biz_data = response['data'].get('biz_data')
+        if biz_data is None: raise DeepSeekResponseError()
+        chat_sessions = biz_data.get('chat_sessions')
+        if chat_sessions is None: raise DeepSeekResponseError()
+        return chat_sessions
     
     
     @classmethod
@@ -78,23 +100,28 @@ class Chats:
         
         updated_at = cls._get_updated_at(response)
         if updated_at is None:
-            await cls._log_result(len(chats['chats']))
+            await cls._log_result(chats['chats'])
             return chats
         
         for _ in range(start // cursor_chats_count):
             response = await cls._process_response(ds_session, response)
             if response is None:
-                await cls._log_result(len(chats['chats']))
+                await cls._log_result(chats['chats'])
                 return chats
         
-        if len(response['data']['biz_data']['chat_sessions']) <= start % cursor_chats_count:
-            await cls._log_result(len(chats['chats']))
+        chat_sessions = cls._get_chat_sessions(response)
+        if len(chat_sessions) <= start % cursor_chats_count:
+            await cls._log_result(chats['chats'])
             return chats
         
-        last_chat = response['data']['biz_data']['chat_sessions'][start % cursor_chats_count]
-        if last_chat: updated_at = last_chat['updated_at']
+        last_chat = chat_sessions[start % cursor_chats_count]
+        if last_chat:
+            updated_at = last_chat.get('updated_at')
+            if updated_at is None:
+                await cls._log_result(chats['chats'])
+                return chats
         else:
-            await cls._log_result(len(chats['chats']))
+            await cls._log_result(chats['chats'])
             return chats
         
         response = await cls._load_chats(ds_session, updated_at)
@@ -102,26 +129,29 @@ class Chats:
         if not end is None:
             chats_count = end - start
             for _ in range(chats_count // cursor_chats_count):
-                chats = cls._add_chats(response['data']['biz_data']['chat_sessions'], chats)
+                chat_sessions = cls._get_chat_sessions(response)
+                chats = cls._add_chats(chat_sessions, chats)
                 response = await cls._process_response(ds_session, response)
                 if response is None:
-                    await cls._log_result(len(chats['chats']))
+                    await cls._log_result(chats['chats'])
                     return chats
             
             has_more = cls._has_more_chats(response)
             if not has_more: return chats
             
             k = chats_count % 100
-            chats = cls._add_chats(response['data']['biz_data']['chat_sessions'][:k], chats)
+            chat_sessions = cls._get_chat_sessions(response)
+            chats = cls._add_chats(chat_sessions[:k], chats)
         else:
             while True:
-                chats = cls._add_chats(response['data']['biz_data']['chat_sessions'], chats)
+                chat_sessions = cls._get_chat_sessions(response)
+                chats = cls._add_chats(chat_sessions, chats)
                 response = await cls._process_response(ds_session, response)
                 if response is None:
-                    await cls._log_result(len(chats['chats']))
+                    await cls._log_result(chats['chats'])
                     return chats
         
-        await cls._log_result(len(chats['chats']))
+        await cls._log_result(chats['chats'])
         return chats
     
     
@@ -136,31 +166,38 @@ class Chats:
         response = await cls._load_chats(ds_session, start_timestamp if not start_timestamp is None else None)
         updated_at = cls._get_updated_at(response)
         if updated_at is None:
-            await cls._log_result(len(chats['chats']))
+            await cls._log_result(chats['chats'])
             return chats
         
         while end_timestamp is None or updated_at > end_timestamp:
-            chats = cls._add_chats(response['data']['biz_data']['chat_sessions'], chats)
+            chat_sessions = cls._get_chat_sessions(response)
+            chats = cls._add_chats(chat_sessions, chats)
             
             has_more = cls._has_more_chats(response)
             if not has_more:
-                await cls._log_result(len(chats['chats']))
+                await cls._log_result(chats['chats'])
                 return chats
             
             updated_at = cls._get_updated_at(response)
             if updated_at is None:
-                await cls._log_result(len(chats['chats']))
+                await cls._log_result(chats['chats'])
                 return chats
             elif not end_timestamp is None and updated_at <= end_timestamp: break
             
             response = await cls._load_chats(ds_session, updated_at)
         
         if not end_timestamp is None:
-            for i, chat_session in enumerate(response['data']['biz_data']['chat_sessions']):
-                if chat_session['updated_at'] <= end_timestamp: break
-            chats = cls._add_chats(response['data']['biz_data']['chat_sessions'][:i], chats)
+            chat_sessions = cls._get_chat_sessions(response)
+            for i, chat_session in enumerate(chat_sessions):
+                updated_at = chat_session.get('updated_at')
+                if updated_at is None:
+                    await cls._log_result(chats['chats'])
+                    return chats
+                if updated_at <= end_timestamp: break
+            chat_sessions = cls._get_chat_sessions(response)
+            chats = cls._add_chats(chat_session[:i], chats)
         
-        await cls._log_result(len(chats['chats']))
+        await cls._log_result(chats['chats'])
         return chats
     
     

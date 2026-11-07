@@ -5,8 +5,8 @@ from curl_cffi.requests import AsyncSession
 from wasmtime import Engine, Store, Module, Instance, Memory, Func
 
 from .. import settings
-from ..utils import extract_from_response
-from ..exceptions import APIError, UnknownError
+from ..utils import extract_from_response, handle_exceptions
+from ..exceptions import DeepSeekResponseError
 
 
 
@@ -77,37 +77,36 @@ class PoWChallenge:
     
     
     @classmethod
+    @handle_exceptions(log_tag='PoW challenge')
     async def solve(cls, ds_session: AsyncSession, target_path: str) -> dict:
-        try:
-            response = await ds_session.post(
-                f'{settings.DEEPSEEK_URL}/chat/create_pow_challenge', 
-                headers=settings.HEADERS, 
-                json = {
-                    'target_path': target_path
-                }
-            )
-            
-            response = extract_from_response('PoW challenge', response)
-            
-            pow_challenge = response['data']['biz_data']['challenge']
-            logger.info(f'[PoW challenge] Created | Target path: {target_path}')
-            
-            algorithm = pow_challenge['algorithm']
-            challenge = pow_challenge['challenge']
-            salt = pow_challenge['salt']
-            signature = pow_challenge['signature']
-            difficulty = pow_challenge['difficulty']
-            expire_at = pow_challenge['expire_at']
-            
-            X_DS_POW_RESPONSE_b64 = await cls._solve_pow_challenge(challenge, salt, expire_at, difficulty, algorithm, signature, target_path)
-            
-            logger.info(f'[PoW challenge] Solved | Result: {X_DS_POW_RESPONSE_b64[:40]}...')
-            return {
-                'result': X_DS_POW_RESPONSE_b64, 
-                'expire_at': expire_at
+        response = await ds_session.post(
+            f'{settings.DEEPSEEK_URL}/chat/create_pow_challenge', 
+            headers=settings.HEADERS, 
+            json = {
+                'target_path': target_path
             }
-        except (APIError, FileNotFoundError): raise
-        except Exception as e:
-            detail = str(e)
-            logger.exception(f'[PoW Challenge] Unknown exception | Detail: {detail}')
-            raise UnknownError(detail) from e
+        )
+        
+        response = extract_from_response('PoW challenge', response)
+        
+        biz_data = response['data'].get('biz_data')
+        if biz_data is None: raise DeepSeekResponseError()
+        pow_challenge = biz_data.get('challenge')
+        if pow_challenge is None: raise DeepSeekResponseError()
+        logger.info(f'[PoW challenge] Created | Target path: {target_path}')
+        
+        algorithm = pow_challenge.get('algorithm')
+        challenge = pow_challenge.get('challenge')
+        salt = pow_challenge.get('salt')
+        signature = pow_challenge.get('signature')
+        difficulty = pow_challenge.get('difficulty')
+        expire_at = pow_challenge.get('expire_at')
+        if algorithm is None or challenge is None or salt is None or signature is None or difficulty is None or expire_at is None: raise DeepSeekResponseError()
+        
+        X_DS_POW_RESPONSE_b64 = await cls._solve_pow_challenge(challenge, salt, expire_at, difficulty, algorithm, signature, target_path)
+        
+        logger.info(f'[PoW challenge] Solved | Result: {X_DS_POW_RESPONSE_b64[:40]}...')
+        return {
+            'result': X_DS_POW_RESPONSE_b64, 
+            'expire_at': expire_at
+        }

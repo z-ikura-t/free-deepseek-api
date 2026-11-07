@@ -47,7 +47,7 @@ def extract_from_response(log_tag: str, response: Response) -> dict:
             logger.error(f'[{log_tag}] Response error | Detail: {detail}')
             raise DeepSeekResponseError(detail)
         return response
-    except APIError: raise
+    except (APIError, FileNotFoundError): raise
     except Exception as e:
         detail = str(e)
         logger.exception(f'[{log_tag}] Unknown error | Detail: {detail}')

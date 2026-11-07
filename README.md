@@ -1,7 +1,9 @@
 # free-deepseek-api
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-Chat-purple.svg)](https://chat.deepseek.com/)
+
 
 Local asynchronous API proxy for DeepSeek Chat. Provides a REST API for chat, file uploads, and image recognition using your DeepSeek account.
 
@@ -20,6 +22,9 @@ This is not the official DeepSeek API and not a local model. It is a browser-bas
 - Python 3.10+
 
 ## Quick Start
+
+Install the dependencies for the main application:
+
 ```bash
 git clone https://github.com/z-ikura-t/free-deepseek-api
 cd free-deepseek-api
@@ -30,7 +35,13 @@ pip install -r requirements.txt
 
 ### Auto
 
-Run the built-in script to automatically get your token:
+If you want to use automatic authorization, you need to install the additional dependencies:
+
+```bash
+pip install -r requirements_auth.txt
+```
+
+After that, run the built-in script to automatically get your token:
 
 ```bash
 python auth.py
@@ -56,7 +67,7 @@ How to get the token manually:
 5. Find the `completion` request in the **Network** tab
 6. Open the **Headers** section
 7. Find **Authorization** header under **Request Headers**
-8. Copy the token value after `Bearer`  (without the "Bearer " prefix)
+8. Copy the token value after `Bearer` (without the "Bearer " prefix)
 
 **Important:**
 - Do not share your token with anyone.
@@ -83,7 +94,7 @@ Check API health and DeepSeek token validity.
 curl -X GET 'http://127.0.0.1:4971/api/health'
 ```
 
-### Get Chats
+### Load Chats
 
 List all chats with optional pagination or date filtering.
 
@@ -126,7 +137,7 @@ curl -X DELETE 'http://127.0.0.1:4971/api/chats' \
   }'
 ```
 
-### Create chat
+### Create Chat
 
 Create a new empty chat.
 
@@ -134,7 +145,7 @@ Create a new empty chat.
 curl -X POST 'http://127.0.0.1:4971/api/chat/create'
 ```
 
-### Get chat
+### Load Chat
 
 Load a chat with all its messages by ID.
 

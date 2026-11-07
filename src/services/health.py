@@ -4,7 +4,7 @@ from curl_cffi.requests import AsyncSession
 
 from . import settings
 from .utils import extract_from_response
-from .exceptions import APIError, UnknownError
+from .exceptions import UnknownError, DeepSeekResponseError
 
 
 
@@ -18,8 +18,11 @@ async def check_health(ds_session: AsyncSession, headers: dict | None = None) ->
         
         response = extract_from_response('Health', response)
         
-        if not response['data']['biz_data'].get('id') is None:
-            user_id = response['data']['biz_data']['id']
+        biz_data = response['data'].get('biz_data')
+        if biz_data is None: raise DeepSeekResponseError()
+        
+        if not biz_data.get('id') is None:
+            user_id = biz_data['id']
             logger.info(f'[Health] OK | User ID: {user_id}')
             return {
                 'ok': True, 
